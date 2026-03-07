@@ -41,11 +41,11 @@ async def get_task_by_id(task_id: int) -> Optional[Task]:
 async def update_task(task: Task) -> Task:
     """更新任务。"""
     async with get_session() as session:
-        session.add(task)
+        merged = await session.merge(task)
         await session.flush()
-        await session.refresh(task)
-        logger.info(f"更新任务: {task.title} (id={task.id})")
-        return task
+        await session.refresh(merged)
+        logger.info(f"更新任务: {merged.title} (id={merged.id})")
+        return merged
 
 
 async def delete_task(task_id: int) -> bool:
