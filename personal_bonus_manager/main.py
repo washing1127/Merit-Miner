@@ -36,19 +36,22 @@ logger.add(
 )
 
 
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_BUNDLED_FONT = "fonts/NotoSansSC-Regular.otf"  # 相对于 assets_dir
+
+
 async def main(page: ft.Page):
     """应用主入口。"""
     # --- 页面基础配置 ---
     page.title = "Personal Bonus Manager"
     page.theme_mode = ft.ThemeMode.LIGHT
-    # 注册中文字体（文泉驿正黑）
-    page.fonts = {
-        "WenQuanYi": "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-    }
+
+    # 注册打包的中文字体（assets/fonts/NotoSansSC-Regular.otf）
+    page.fonts = {"NotoSansSC": _BUNDLED_FONT}
     page.theme = ft.Theme(
         color_scheme_seed=ft.Colors.BLUE,
         use_material3=True,
-        font_family="WenQuanYi",
+        font_family="NotoSansSC",
     )
     page.padding = 0
 
@@ -209,4 +212,4 @@ async def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.app(main)
+    ft.run(main, assets_dir=str(_ASSETS_DIR))
