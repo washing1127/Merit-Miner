@@ -101,12 +101,16 @@ class TasksPage:
 
     async def _on_checkin(self, task: Task):
         """打卡操作。"""
-        success, message = await checkin_today(task.id)
-        self._show_snack(
-            message,
-            ft.Colors.GREEN_100 if success else ft.Colors.ORANGE_100,
-        )
-        await self._refresh_ui()
+        try:
+            success, message = await checkin_today(task.id)
+            self._show_snack(
+                message,
+                ft.Colors.GREEN_100 if success else ft.Colors.ORANGE_100,
+            )
+            await self._refresh_ui()
+        except Exception as e:
+            logger.exception(f"打卡出错: {e}")
+            self._show_snack(f"打卡失败: {e}", ft.Colors.RED_100)
 
     async def _on_makeup(self, task: Task):
         """补卡操作。"""

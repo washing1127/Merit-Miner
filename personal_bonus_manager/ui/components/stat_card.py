@@ -97,35 +97,30 @@ class BalanceCard(ft.Card):
         )
 
 
-class TaskStreakCard(ft.Card):
+def TaskStreakCard(
+    title: str,
+    streak: int,
+    max_streak: int,
+    is_checked_today: bool,
+    reward_amount: float = 0,
+    is_reward_task: bool = False,
+    on_checkin=None,
+    on_makeup=None,
+    on_edit=None,
+) -> ft.Card:
     """任务打卡卡片。显示任务名称、连续天数和打卡按钮。"""
 
-    def __init__(
-        self,
-        title: str,
-        streak: int,
-        max_streak: int,
-        is_checked_today: bool,
-        reward_amount: float = 0,
-        is_reward_task: bool = False,
-        on_checkin: callable = None,
-        on_makeup: callable = None,
-        on_edit: callable = None,
-    ):
-        self._on_checkin = on_checkin
-        self._on_makeup = on_makeup
-
-        # 打卡按钮
-        checkin_btn = ft.IconButton(
-            icon=ft.Icons.CHECK_CIRCLE if is_checked_today
-            else ft.Icons.CHECK_CIRCLE_OUTLINE,
-            icon_color=ft.Colors.GREEN if is_checked_today
-            else ft.Colors.GREY_400,
-            icon_size=36,
-            on_click=on_checkin,
-            disabled=is_checked_today,
-            tooltip="今日已打卡" if is_checked_today else "点击打卡",
-        )
+    # 打卡按钮
+    checkin_btn = ft.IconButton(
+        icon=ft.Icons.CHECK_CIRCLE if is_checked_today
+        else ft.Icons.CHECK_CIRCLE_OUTLINE,
+        icon_color=ft.Colors.GREEN if is_checked_today
+        else ft.Colors.GREY_400,
+        icon_size=36,
+        on_click=on_checkin,
+        disabled=is_checked_today,
+        tooltip="今日已打卡" if is_checked_today else "点击打卡",
+    )
 
         # 任务信息
         info_col = ft.Column(
@@ -180,4 +175,4 @@ class TaskStreakCard(ft.Card):
             ),
             padding=ft.padding.symmetric(horizontal=12, vertical=8),
         )
-        super().__init__(content=content, elevation=1)
+    return ft.Card(content=content, elevation=1)
