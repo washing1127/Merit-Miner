@@ -50,11 +50,11 @@ async def get_transaction_by_id(txn_id: int) -> Optional[Transaction]:
 async def update_transaction(txn: Transaction) -> Transaction:
     """更新账单。"""
     async with get_session() as session:
-        session.add(txn)
+        merged = await session.merge(txn)
         await session.flush()
-        await session.refresh(txn)
-        logger.info(f"更新账单: id={txn.id}")
-        return txn
+        await session.refresh(merged)
+        logger.info(f"更新账单: id={merged.id}")
+        return merged
 
 
 async def delete_transaction(txn_id: int) -> bool:
