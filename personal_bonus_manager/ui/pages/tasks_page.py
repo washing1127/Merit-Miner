@@ -150,7 +150,7 @@ class TasksPage:
         title_field = ft.TextField(label="任务名称", value=task.title)
         amount_field = ft.TextField(
             label="每次奖金", value=str(task.reward_amount),
-            keyboard_type=ft.KeyboardType.NUMBER, prefix_text="¥",
+            keyboard_type=ft.KeyboardType.NUMBER, prefix=ft.Text("¥"),
         )
         type_dropdown = ft.Dropdown(
             label="任务类型", value=str(task.task_type),
@@ -230,7 +230,7 @@ class TasksPage:
         title_field = ft.TextField(label="任务名称", autofocus=True)
         amount_field = ft.TextField(
             label="每次奖金", value="0",
-            keyboard_type=ft.KeyboardType.NUMBER, prefix_text="¥",
+            keyboard_type=ft.KeyboardType.NUMBER, prefix=ft.Text("¥"),
         )
         type_dropdown = ft.Dropdown(
             label="任务类型", value="0",
