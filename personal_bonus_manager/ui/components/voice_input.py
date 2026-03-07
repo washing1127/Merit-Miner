@@ -95,7 +95,7 @@ class TransactionConfirmDialog(ft.AlertDialog):
             label="金额",
             value=str(amount),
             keyboard_type=ft.KeyboardType.NUMBER,
-            prefix_text=currency_symbol,
+            prefix=ft.Text(currency_symbol),
         )
 
         self.category_dropdown = ft.Dropdown(

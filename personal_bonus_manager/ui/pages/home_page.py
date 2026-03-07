@@ -103,7 +103,7 @@ class HomePage:
 
         amount_field = ft.TextField(
             label="金额", value=str(result.amount),
-            keyboard_type=ft.KeyboardType.NUMBER, prefix_text=currency,
+            keyboard_type=ft.KeyboardType.NUMBER, prefix=ft.Text(currency),
         )
         category_dropdown = ft.Dropdown(
             label="分类", value=result.category,
@@ -185,7 +185,7 @@ class HomePage:
         """显示手动记账对话框。"""
         currency = self._settings.currency_symbol if self._settings else "¥"
         amount_field = ft.TextField(
-            label="金额", keyboard_type=ft.KeyboardType.NUMBER, prefix_text=currency,
+            label="金额", keyboard_type=ft.KeyboardType.NUMBER, prefix=ft.Text(currency),
         )
         category_dropdown = ft.Dropdown(
             label="分类", value="其他",
@@ -266,7 +266,7 @@ class HomePage:
         currency = self._settings.currency_symbol if self._settings else "¥"
         amount_field = ft.TextField(
             label="金额", value=str(txn.amount),
-            keyboard_type=ft.KeyboardType.NUMBER, prefix_text=currency,
+            keyboard_type=ft.KeyboardType.NUMBER, prefix=ft.Text(currency),
         )
         category_dropdown = ft.Dropdown(
             label="分类",

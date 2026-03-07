@@ -41,9 +41,14 @@ async def main(page: ft.Page):
     # --- 页面基础配置 ---
     page.title = "Personal Bonus Manager"
     page.theme_mode = ft.ThemeMode.LIGHT
+    # 注册中文字体（文泉驿正黑）
+    page.fonts = {
+        "WenQuanYi": "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+    }
     page.theme = ft.Theme(
         color_scheme_seed=ft.Colors.BLUE,
         use_material3=True,
+        font_family="WenQuanYi",
     )
     page.padding = 0
 
