@@ -76,6 +76,15 @@ class TasksPage:
 
         cards = []
         for task in self.tasks:
+            async def on_checkin(e, t=task):
+                await self._on_checkin(t)
+
+            async def on_makeup(e, t=task):
+                await self._on_makeup(t)
+
+            async def on_edit(e, t=task):
+                await self._on_edit_task(t)
+
             card = TaskStreakCard(
                 title=task.title,
                 streak=task.current_streak,
@@ -83,9 +92,9 @@ class TasksPage:
                 is_checked_today=self._checked_today.get(task.id, False),
                 reward_amount=task.reward_amount,
                 is_reward_task=task.task_type == TaskType.REWARD,
-                on_checkin=lambda e, t=task: self.page.run_task(self._on_checkin, t),
-                on_makeup=lambda e, t=task: self.page.run_task(self._on_makeup, t),
-                on_edit=lambda e, t=task: self.page.run_task(self._on_edit_task, t),
+                on_checkin=on_checkin,
+                on_makeup=on_makeup,
+                on_edit=on_edit,
             )
             cards.append(card)
         return cards
@@ -110,13 +119,15 @@ class TasksPage:
         date_buttons = []
         for d in dates:
             date_str = d.strftime("%Y-%m-%d")
+
+            async def on_date_click(e, date=d):
+                await self._do_makeup(task.id, date)
+
             date_buttons.append(
                 ft.ListTile(
                     title=ft.Text(date_str),
                     leading=ft.Icon(ft.Icons.CALENDAR_TODAY),
-                    on_click=lambda e, date=d: self.page.run_task(
-                        self._do_makeup(task.id, date)
-                    ),
+                    on_click=on_date_click,
                 )
             )
 
@@ -181,6 +192,10 @@ class TasksPage:
 
         async def on_delete(e):
             self.page.pop_dialog()
+
+            async def do_delete_confirmed(e):
+                await self._do_delete_task(task.id)
+
             confirm = ft.AlertDialog(
                 title=ft.Text("确认删除"),
                 content=ft.Text(
@@ -190,9 +205,7 @@ class TasksPage:
                     ft.TextButton("取消", on_click=lambda e: self.page.pop_dialog()),
                     ft.FilledButton(
                         "删除",
-                        on_click=lambda e: self.page.run_task(
-                            self._do_delete_task(task.id)
-                        ),
+                        on_click=do_delete_confirmed,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
                     ),
                 ],

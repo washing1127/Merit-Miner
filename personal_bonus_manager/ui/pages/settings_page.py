@@ -183,10 +183,6 @@ class SettingsPage:
         )
 
         # --- 数据管理区域 ---
-        file_picker = ft.FilePicker()
-        self.page.overlay.append(file_picker)
-        self._file_picker = file_picker
-
         async def on_export_db(e):
             try:
                 path = await export_db_file()
@@ -201,23 +197,49 @@ class SettingsPage:
             except Exception as ex:
                 self._show_snack(f"导出失败: {ex}", ft.Colors.RED_100)
 
-        async def on_import_db(e):
-            files = file_picker.pick_files(
-                dialog_title="选择数据库备份文件",
-                allowed_extensions=["db"],
-                file_type=ft.FilePickerFileType.CUSTOM,
+        def _show_import_path_dialog(import_type: str):
+            """显示手动输入文件路径的导入对话框。"""
+            path_field = ft.TextField(
+                label="文件路径",
+                hint_text=f"/path/to/backup.{import_type}",
+                autofocus=True,
             )
-            if files and len(files) > 0 and files[0].path:
-                await self._confirm_import(files[0].path, "db")
+
+            async def on_confirm(e):
+                file_path = path_field.value.strip()
+                if not file_path:
+                    path_field.error_text = "请输入文件路径"
+                    path_field.update()
+                    return
+                self.page.pop_dialog()
+                await self._confirm_import(file_path, import_type)
+
+            dialog = ft.AlertDialog(
+                title=ft.Text(f"导入{'数据库' if import_type == 'db' else 'JSON'}备份"),
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text("请输入备份文件的完整路径：", size=13),
+                            path_field,
+                        ],
+                        tight=True,
+                        spacing=8,
+                    ),
+                    width=350,
+                ),
+                actions=[
+                    ft.TextButton("取消", on_click=lambda e: self.page.pop_dialog()),
+                    ft.FilledButton("导入", on_click=on_confirm),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            self.page.show_dialog(dialog)
+
+        async def on_import_db(e):
+            _show_import_path_dialog("db")
 
         async def on_import_json(e):
-            files = file_picker.pick_files(
-                dialog_title="选择 JSON 备份文件",
-                allowed_extensions=["json"],
-                file_type=ft.FilePickerFileType.CUSTOM,
-            )
-            if files and len(files) > 0 and files[0].path:
-                await self._confirm_import(files[0].path, "json")
+            _show_import_path_dialog("json")
 
         data_section = ft.Card(
             content=ft.Container(
