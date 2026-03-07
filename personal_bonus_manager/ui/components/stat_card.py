@@ -122,57 +122,57 @@ def TaskStreakCard(
         tooltip="今日已打卡" if is_checked_today else "点击打卡",
     )
 
-        # 任务信息
-        info_col = ft.Column(
-            [
-                ft.Text(title, size=16, weight=ft.FontWeight.W_600),
-                ft.Row(
-                    [
-                        ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT, size=14,
-                                color=ft.Colors.ORANGE),
-                        ft.Text(f"连续 {streak} 天", size=13),
-                        ft.Text(f"(最高 {max_streak})", size=11,
-                                color=ft.Colors.GREY_500),
-                    ],
-                    spacing=4,
-                ),
-                ft.Text(
-                    f"奖励 ¥{reward_amount:.2f}/次",
-                    size=12,
-                    color=ft.Colors.AMBER_700,
-                )
-                if is_reward_task and reward_amount > 0
-                else ft.Container(),
-            ],
-            spacing=2,
-            expand=True,
-        )
-
-        # 操作按钮
-        actions_row = ft.Row(
-            [
-                ft.IconButton(
-                    icon=ft.Icons.HISTORY,
-                    icon_size=20,
-                    tooltip="补卡",
-                    on_click=on_makeup,
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.EDIT,
-                    icon_size=20,
-                    tooltip="编辑",
-                    on_click=on_edit,
-                ),
-            ],
-            spacing=0,
-        )
-
-        content = ft.Container(
-            content=ft.Row(
-                [checkin_btn, info_col, actions_row],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    # 任务信息
+    info_col = ft.Column(
+        [
+            ft.Text(title, size=16, weight=ft.FontWeight.W_600),
+            ft.Row(
+                [
+                    ft.Icon(ft.Icons.LOCAL_FIRE_DEPARTMENT, size=14,
+                            color=ft.Colors.ORANGE),
+                    ft.Text(f"连续 {streak} 天", size=13),
+                    ft.Text(f"(最高 {max_streak})", size=11,
+                            color=ft.Colors.GREY_500),
+                ],
+                spacing=4,
             ),
-            padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        )
+            ft.Text(
+                f"奖励 ¥{reward_amount:.2f}/次",
+                size=12,
+                color=ft.Colors.AMBER_700,
+            )
+            if is_reward_task and reward_amount > 0
+            else ft.Container(),
+        ],
+        spacing=2,
+        expand=True,
+    )
+
+    # 操作按钮
+    actions_row = ft.Row(
+        [
+            ft.IconButton(
+                icon=ft.Icons.HISTORY,
+                icon_size=20,
+                tooltip="补卡",
+                on_click=on_makeup,
+            ),
+            ft.IconButton(
+                icon=ft.Icons.EDIT,
+                icon_size=20,
+                tooltip="编辑",
+                on_click=on_edit,
+            ),
+        ],
+        spacing=0,
+    )
+
+    content = ft.Container(
+        content=ft.Row(
+            [checkin_btn, info_col, actions_row],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+    )
     return ft.Card(content=content, elevation=1)
