@@ -89,7 +89,7 @@ async def main(page: ft.Page):
                         ft.Text(f"初始化失败: {e}", color=ft.Colors.RED),
                         ft.Button(
                             "重试",
-                            on_click=lambda _: page.run_task(main(page)),
+                            on_click=lambda _: page.run_task(main, page),
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
@@ -148,8 +148,8 @@ async def main(page: ft.Page):
         page.update()
 
     # --- 底部导航栏 ---
-    def on_nav_change(e: ft.ControlEvent):
-        page.run_task(switch_page(e.control.selected_index))
+    async def on_nav_change(e: ft.ControlEvent):
+        await switch_page(e.control.selected_index)
 
     nav_bar = ft.NavigationBar(
         selected_index=0,
@@ -188,7 +188,7 @@ async def main(page: ft.Page):
                 icon=ft.Icons.MIC,
                 tooltip="快速语音记账",
                 on_click=lambda e: page.run_task(
-                    home_page._on_voice_btn_click(e)
+                    home_page._on_voice_btn_click, e
                 ),
             ),
         ],

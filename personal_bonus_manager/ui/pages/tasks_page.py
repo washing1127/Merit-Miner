@@ -83,9 +83,9 @@ class TasksPage:
                 is_checked_today=self._checked_today.get(task.id, False),
                 reward_amount=task.reward_amount,
                 is_reward_task=task.task_type == TaskType.REWARD,
-                on_checkin=lambda e, t=task: self.page.run_task(self._on_checkin(t)),
-                on_makeup=lambda e, t=task: self.page.run_task(self._on_makeup(t)),
-                on_edit=lambda e, t=task: self.page.run_task(self._on_edit_task(t)),
+                on_checkin=lambda e, t=task: self.page.run_task(self._on_checkin, t),
+                on_makeup=lambda e, t=task: self.page.run_task(self._on_makeup, t),
+                on_edit=lambda e, t=task: self.page.run_task(self._on_edit_task, t),
             )
             cards.append(card)
         return cards
