@@ -233,6 +233,9 @@ class HomePage:
         """构建账单列表项。"""
         needs_review = not txn.is_verified and txn.ai_confidence < CONFIDENCE_THRESHOLD_REVIEW
 
+        async def on_tile_click(e, t=txn):
+            await self._show_edit_transaction(t)
+
         return ft.Container(
             content=ft.ListTile(
                 leading=ft.Icon(
@@ -251,9 +254,7 @@ class HomePage:
                     f"-¥{txn.amount:.2f}", size=15, weight=ft.FontWeight.BOLD,
                     color=ft.Colors.RED if txn.is_bonus_related else ft.Colors.GREY_700,
                 ),
-                on_click=lambda e, t=txn: self.page.run_task(
-                    self._show_edit_transaction(t)
-                ),
+                on_click=on_tile_click,
             ),
             border=ft.border.only(bottom=ft.BorderSide(1, ft.Colors.GREY_200)),
         )
@@ -299,6 +300,10 @@ class HomePage:
 
         async def on_delete(e):
             self.page.pop_dialog()
+
+            async def do_delete_confirmed(e):
+                await self._do_delete_txn(txn.id)
+
             confirm = ft.AlertDialog(
                 title=ft.Text("确认删除"),
                 content=ft.Text("删除后无法恢复，确定要删除这条账单吗？"),
@@ -306,9 +311,7 @@ class HomePage:
                     ft.TextButton("取消", on_click=lambda e: self.page.pop_dialog()),
                     ft.FilledButton(
                         "删除",
-                        on_click=lambda e: self.page.run_task(
-                            self._do_delete_txn(txn.id)
-                        ),
+                        on_click=do_delete_confirmed,
                         style=ft.ButtonStyle(bgcolor=ft.Colors.RED),
                     ),
                 ],
