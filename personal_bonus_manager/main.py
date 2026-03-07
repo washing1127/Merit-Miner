@@ -3,8 +3,6 @@
 入口文件。初始化数据库，加载 UI，配置导航。
 """
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -38,41 +36,8 @@ logger.add(
 )
 
 
-def _find_chinese_font() -> str | None:
-    """运行时动态查找系统中文字体，返回字体文件路径。"""
-    # 优先用 fc-list 查找（Linux/macOS with fontconfig）
-    try:
-        result = subprocess.run(
-            ["fc-list", ":lang=zh", "--format=%{file}\n"],
-            capture_output=True, text=True, timeout=3,
-        )
-        for line in result.stdout.splitlines():
-            path = line.strip()
-            if path and os.path.exists(path):
-                return path
-    except Exception:
-        pass
-
-    # 常见路径兜底
-    fallback_paths = [
-        # Linux (wqy)
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-        # Linux (Noto CJK)
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        # macOS
-        "/System/Library/Fonts/PingFang.ttc",
-        "/Library/Fonts/Arial Unicode.ttf",
-        # Windows
-        "C:/Windows/Fonts/msyh.ttc",
-        "C:/Windows/Fonts/simsun.ttc",
-    ]
-    for path in fallback_paths:
-        if os.path.exists(path):
-            return path
-    return None
+_ASSETS_DIR = Path(__file__).parent / "assets"
+_BUNDLED_FONT = "fonts/NotoSansSC-Regular.otf"  # 相对于 assets_dir
 
 
 async def main(page: ft.Page):
@@ -81,22 +46,13 @@ async def main(page: ft.Page):
     page.title = "Personal Bonus Manager"
     page.theme_mode = ft.ThemeMode.LIGHT
 
-    # 动态注册中文字体
-    chinese_font_path = _find_chinese_font()
-    if chinese_font_path:
-        logger.info(f"使用中文字体: {chinese_font_path}")
-        page.fonts = {"CJK": chinese_font_path}
-        page.theme = ft.Theme(
-            color_scheme_seed=ft.Colors.BLUE,
-            use_material3=True,
-            font_family="CJK",
-        )
-    else:
-        logger.warning("未找到中文字体，文字可能显示异常")
-        page.theme = ft.Theme(
-            color_scheme_seed=ft.Colors.BLUE,
-            use_material3=True,
-        )
+    # 注册打包的中文字体（assets/fonts/NotoSansSC-Regular.otf）
+    page.fonts = {"NotoSansSC": _BUNDLED_FONT}
+    page.theme = ft.Theme(
+        color_scheme_seed=ft.Colors.BLUE,
+        use_material3=True,
+        font_family="NotoSansSC",
+    )
     page.padding = 0
 
     # 窗口配置（桌面端）
@@ -256,4 +212,4 @@ async def main(page: ft.Page):
 
 
 if __name__ == "__main__":
-    ft.run(main)
+    ft.run(main, assets_dir=str(_ASSETS_DIR))
