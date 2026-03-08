@@ -17,6 +17,11 @@ fi
 
 cd "$PROJECT_DIR"
 
+# 修复 cookiecutter 对二进制文件（OTF字体等）的误判问题
+# binaryornot 0.4.4 对以 ASCII 字节开头的二进制文件（如 OTF 字体 "OTTO"）误判为文本
+echo "正在修复 cookiecutter 二进制文件处理..."
+python3 scripts/fix_cookiecutter.py
+
 # 构建 APK
 echo "开始构建 APK..."
 flet build apk \
