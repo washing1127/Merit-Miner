@@ -86,16 +86,110 @@ _TARGET_AGP = "8.8.0"
 _TARGET_GRADLE = "8.10"
 
 
+# 标准 Gradle Wrapper shell 脚本（与 Gradle 版本无关）
+_GRADLEW_CONTENT = r"""#!/bin/sh
+#
+# Copyright © 2015-2021 the original authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+app_path=$0
+while
+  APP_HOME=${app_path%"${app_path##*/}"}
+  [ -h "$app_path" ]
+do
+  ls=$( ls -ld "$app_path" )
+  link=${ls#*' -> '}
+  case $link in
+    /*)   app_path=$link ;;
+    *)    app_path=$APP_HOME$link ;;
+  esac
+done
+APP_HOME=$( cd "${APP_HOME:-./}" && pwd -P ) || exit
+APP_NAME="Gradle"
+APP_BASE_NAME=${0##*/}
+
+DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+
+MAX_FD=maximum
+
+warn () { echo "$*"; }
+die () { echo; echo "$*"; echo; exit 1; }
+
+cygwin=false
+msys=false
+darwin=false
+nonstop=false
+case "$( uname )" in
+  CYGWIN* )        cygwin=true  ;;
+  Darwin* )        darwin=true  ;;
+  MSYS* | MINGW* ) msys=true    ;;
+  NONSTOP* )       nonstop=true ;;
+esac
+
+CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
+
+if [ -n "$JAVA_HOME" ] ; then
+  if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
+    JAVACMD=$JAVA_HOME/jre/sh/java
+  else
+    JAVACMD=$JAVA_HOME/bin/java
+  fi
+  if [ ! -x "$JAVACMD" ] ; then
+    die "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME"
+  fi
+else
+  JAVACMD=java
+  which java >/dev/null 2>&1 || die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH."
+fi
+
+if ! "$cygwin" && ! "$darwin" && ! "$nonstop" ; then
+  case $MAX_FD in
+    max*) MAX_FD=$( ulimit -H -n ) || warn "Could not query maximum file descriptor limit" ;;
+  esac
+  case $MAX_FD in
+    '' | soft) ;;
+    *) ulimit -n "$MAX_FD" || warn "Could not set maximum file descriptor limit to $MAX_FD" ;;
+  esac
+fi
+
+eval set -- $DEFAULT_JVM_OPTS $JAVA_OPTS $GRADLE_OPTS "\"-Dorg.gradle.appname=$APP_BASE_NAME\"" -classpath "\"$CLASSPATH\"" org.gradle.wrapper.GradleWrapperMain '"$@"'
+
+exec "$JAVACMD" "$@"
+"""
+
+
 def restore_gradlew(android_dir: Path) -> bool:
-    """从备份恢复 gradlew（撤销之前的错误修改）。"""
+    """恢复 gradlew 为标准 Gradle Wrapper 脚本（从备份或重建）。"""
     gradlew = android_dir / "gradlew"
     backup = gradlew.with_suffix('.orig')
     if backup.exists():
         shutil.copy2(backup, gradlew)
-        gradlew.chmod(gradlew.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-        print(f"✓ gradlew: 已从备份恢复（使用 Gradle wrapper {_TARGET_GRADLE}）")
+        print(f"✓ gradlew: 已从备份恢复")
     else:
-        print(f"✓ gradlew: 无备份，保持原样")
+        # 检查是否是被破坏的脚本（只有一两行，不是标准 wrapper）
+        if gradlew.exists():
+            content = gradlew.read_text(encoding='utf-8', errors='replace')
+            if len(content.splitlines()) < 10:
+                gradlew.write_text(_GRADLEW_CONTENT.lstrip(), encoding='utf-8')
+                print(f"✓ gradlew: 检测到破损脚本，已重写为标准 Gradle Wrapper")
+            else:
+                print(f"✓ gradlew: 内容正常，保持原样")
+        else:
+            gradlew.write_text(_GRADLEW_CONTENT.lstrip(), encoding='utf-8')
+            print(f"✓ gradlew: 已重建标准 Gradle Wrapper 脚本")
+    gradlew.chmod(gradlew.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return True
 
 
