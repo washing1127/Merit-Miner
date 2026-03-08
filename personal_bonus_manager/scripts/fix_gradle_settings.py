@@ -15,12 +15,21 @@
   PREFER_SETTINGS，允许插件在 settings 上下文中添加仓库而不抛出异常。
 """
 
+import os
 import re
 import shutil
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
-GRADLE_VERSION = "8.13"
+GRADLE_MIN_VERSION = (8, 13)
+
+# 候选的本地 Gradle 安装路径
+_LOCAL_GRADLE_CANDIDATES = [
+    Path("/opt/gradle"),
+    Path(os.environ.get("GRADLE_HOME", "/nonexistent")),
+]
 
 
 def find_flutter_sdk(android_dir: Path) -> Path | None:
@@ -79,34 +88,48 @@ def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
     return True
 
 
-# ── 修复 Gradle Wrapper 版本 ──────────────────────────────────────────────────
+# ── 查找本地 Gradle 安装 ──────────────────────────────────────────────────────
 
-def fix_gradle_wrapper(android_dir: Path) -> bool:
-    wrapper_props = android_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
-    if not wrapper_props.exists():
-        print(f"警告: 未找到 {wrapper_props}，跳过")
+def find_local_gradle() -> tuple[Path, str] | None:
+    """返回满足最低版本要求的本地 Gradle (home, version_str)，否则返回 None。"""
+    for candidate in _LOCAL_GRADLE_CANDIDATES:
+        gradle_bin = candidate / "bin" / "gradle"
+        if not gradle_bin.is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [str(gradle_bin), "--version"],
+                capture_output=True, text=True, timeout=10,
+            )
+            m = re.search(r'Gradle\s+(\d+)\.(\d+)', result.stdout)
+            if m:
+                major, minor = int(m.group(1)), int(m.group(2))
+                if (major, minor) >= GRADLE_MIN_VERSION:
+                    version = re.search(r'Gradle\s+(\S+)', result.stdout).group(1)
+                    return candidate, version
+        except Exception:
+            continue
+    return None
+
+
+# ── 修复 Gradle Wrapper：绕过网络下载，直接调用本地 Gradle ────────────────────
+
+def fix_gradlew(android_dir: Path, local_gradle: Path, version: str) -> bool:
+    """将 gradlew 替换为直接调用本地 Gradle 安装的包装脚本。"""
+    gradlew = android_dir / "gradlew"
+    if not gradlew.exists():
+        print(f"警告: 未找到 {gradlew}，跳过")
         return True
 
-    content = wrapper_props.read_text(encoding='utf-8')
+    backup = gradlew.with_suffix('.orig')
+    if not backup.exists():
+        shutil.copy2(gradlew, backup)
 
-    # 找当前版本号
-    match = re.search(r'gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)\.zip', content)
-    if not match:
-        print(f"警告: gradle-wrapper.properties 中未找到 distributionUrl，跳过")
-        return True
-
-    current = match.group(1)
-    if current == GRADLE_VERSION:
-        print(f"✓ Gradle wrapper 已是 {GRADLE_VERSION}，跳过")
-        return True
-
-    new_content = re.sub(
-        r'(gradle-)[\d.]+(-(?:bin|all)\.zip)',
-        rf'\g<1>{GRADLE_VERSION}\2',
-        content,
-    )
-    wrapper_props.write_text(new_content, encoding='utf-8')
-    print(f"✓ Gradle wrapper: {current} → {GRADLE_VERSION}")
+    gradle_bin = local_gradle / "bin" / "gradle"
+    script = f'#!/bin/sh\nexec "{gradle_bin}" "$@"\n'
+    gradlew.write_text(script, encoding='utf-8')
+    gradlew.chmod(gradlew.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    print(f"✓ gradlew: 改为调用本地 Gradle {version} ({gradle_bin})")
     return True
 
 
@@ -154,8 +177,16 @@ def main():
     # 步骤 2: 修复 Flutter 工具包的 settings.gradle.kts（核心修复）
     ok2 = fix_flutter_tools_settings(flutter_sdk)
 
-    # 步骤 3: 升级 Gradle wrapper 版本
-    ok3 = fix_gradle_wrapper(android_dir)
+    # 步骤 3: 绕过 Gradle Wrapper 网络下载——使用本地 Gradle
+    local = find_local_gradle()
+    if local:
+        local_gradle, gradle_version = local
+        ok3 = fix_gradlew(android_dir, local_gradle, gradle_version)
+    else:
+        print("错误: 未找到满足要求（>= 8.13）的本地 Gradle 安装。", file=sys.stderr)
+        print("请通过以下方式之一安装：", file=sys.stderr)
+        print("  sudo apt install gradle  或  snap install gradle --classic", file=sys.stderr)
+        ok3 = False
 
     if not (ok1 and ok2 and ok3):
         sys.exit(1)
@@ -165,10 +196,10 @@ def main():
     print(f"  cd {flutter_dir}")
     print("  flutter build apk --release")
     print()
-    print("注意：此修复改动了 Flutter SDK 文件。")
-    print(f"如需还原，运行：")
+    print("注意：此修复改动了 Flutter SDK 文件。如需还原：")
     tools_settings = flutter_sdk / "packages" / "flutter_tools" / "gradle" / "settings.gradle.kts"
     print(f"  cp {tools_settings}.orig {tools_settings}")
+    print(f"  cp {android_dir}/gradlew.orig {android_dir}/gradlew")
 
 
 if __name__ == '__main__':
