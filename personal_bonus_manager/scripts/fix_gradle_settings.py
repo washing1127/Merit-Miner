@@ -20,6 +20,8 @@ import shutil
 import sys
 from pathlib import Path
 
+GRADLE_VERSION = "8.13"
+
 
 def find_flutter_sdk(android_dir: Path) -> Path | None:
     """从 local.properties 中提取 Flutter SDK 路径。"""
@@ -77,6 +79,37 @@ def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
     return True
 
 
+# ── 修复 Gradle Wrapper 版本 ──────────────────────────────────────────────────
+
+def fix_gradle_wrapper(android_dir: Path) -> bool:
+    wrapper_props = android_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
+    if not wrapper_props.exists():
+        print(f"警告: 未找到 {wrapper_props}，跳过")
+        return True
+
+    content = wrapper_props.read_text(encoding='utf-8')
+
+    # 找当前版本号
+    match = re.search(r'gradle-(\d+\.\d+(?:\.\d+)?)-(?:bin|all)\.zip', content)
+    if not match:
+        print(f"警告: gradle-wrapper.properties 中未找到 distributionUrl，跳过")
+        return True
+
+    current = match.group(1)
+    if current == GRADLE_VERSION:
+        print(f"✓ Gradle wrapper 已是 {GRADLE_VERSION}，跳过")
+        return True
+
+    new_content = re.sub(
+        r'(gradle-)[\d.]+(-(?:bin|all)\.zip)',
+        rf'\g<1>{GRADLE_VERSION}\2',
+        content,
+    )
+    wrapper_props.write_text(new_content, encoding='utf-8')
+    print(f"✓ Gradle wrapper: {current} → {GRADLE_VERSION}")
+    return True
+
+
 # ── 还原之前错误的 settings.gradle.kts 补丁 ──────────────────────────────────
 
 def restore_app_settings(android_dir: Path) -> bool:
@@ -121,7 +154,10 @@ def main():
     # 步骤 2: 修复 Flutter 工具包的 settings.gradle.kts（核心修复）
     ok2 = fix_flutter_tools_settings(flutter_sdk)
 
-    if not (ok1 and ok2):
+    # 步骤 3: 升级 Gradle wrapper 版本
+    ok3 = fix_gradle_wrapper(android_dir)
+
+    if not (ok1 and ok2 and ok3):
         sys.exit(1)
 
     print("\n✓ 修复完成！现在运行：")
