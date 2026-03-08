@@ -3,24 +3,41 @@
 修复 flet build 生成的 Flutter Android 项目中 settings.gradle.kts 的
 Gradle 仓库冲突问题。
 
-错误原因：
-  Flutter 3.x 在 settings.gradle.kts 里将 dependencyResolutionManagement 设为
-  FAIL_ON_PROJECT_REPOS，但同时又在 settings 文件中声明了 maven 仓库，
-  Gradle 8.x 对此严格报错。
+真正根因：
+  settings.gradle.kts 通过 includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+  引入了 Flutter Gradle 工具包。Flutter Gradle 工具包在自己的 settings 里会添加
+  未命名的 maven 仓库（如 storage.flutter-io.cn 镜像），Gradle 将未命名 maven 块
+  默认命名为 'maven'。当 Gradle 以 PREFER_SETTINGS 模式运行时，发现 settings 文件
+  里有这个 'maven' 仓库，就报 "Error resolving plugin" 错误。
 
 修复策略：
-  将 FAIL_ON_PROJECT_REPOS 改为 PREFER_SETTINGS，允许 settings 文件
-  额外声明仓库而不报错。
+  在 settings.gradle.kts 末尾追加 dependencyResolutionManagement 块，
+  使用 PREFER_PROJECT 模式，允许 Flutter SDK 自由添加项目级仓库，
+  同时显式声明 google() / mavenCentral() 作为主要依赖来源。
 """
 
-import re
 import shutil
 import sys
 from pathlib import Path
 
 
+PATCH_MARKER = '// pbm-gradle-fix: PREFER_PROJECT'
+
+PATCH_BLOCK = """\
+
+// pbm-gradle-fix: PREFER_PROJECT
+// 修复 Flutter includeBuild 的 maven 仓库命名冲突（Gradle 8.x + PREFER_SETTINGS 不兼容）
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+"""
+
+
 def find_settings_gradle(project_dir: Path) -> Path | None:
-    """找到生成的 Flutter 项目里的 settings.gradle.kts。"""
     candidates = [
         project_dir / "build" / "flutter" / "android" / "settings.gradle.kts",
         project_dir / "build" / "android" / "settings.gradle.kts",
@@ -28,42 +45,16 @@ def find_settings_gradle(project_dir: Path) -> Path | None:
     for p in candidates:
         if p.exists():
             return p
-    # 宽泛查找
     found = list(project_dir.glob("build/**/android/settings.gradle.kts"))
     return found[0] if found else None
 
 
 def fix_settings_gradle(settings_file: Path) -> bool:
-    """修复 repositoriesMode 冲突。"""
     content = settings_file.read_text(encoding='utf-8')
 
-    # 检查是否已修复
-    if 'PREFER_SETTINGS' in content and 'FAIL_ON_PROJECT_REPOS' not in content:
-        print(f"✓ {settings_file.name} 已是正确配置，跳过")
+    if PATCH_MARKER in content:
+        print(f"✓ {settings_file.name} 已应用补丁，跳过")
         return True
-
-    original = content
-
-    # 修复 1：将 FAIL_ON_PROJECT_REPOS 改为 PREFER_SETTINGS
-    content = content.replace(
-        'RepositoriesMode.FAIL_ON_PROJECT_REPOS',
-        'RepositoriesMode.PREFER_SETTINGS',
-    )
-
-    # 修复 2：处理 Groovy 风格的 repositoriesMode 设置（有些版本用不同写法）
-    content = re.sub(
-        r'repositoriesMode\.set\s*\(\s*RepositoriesMode\.FAIL_ON_PROJECT_REPOS\s*\)',
-        'repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)',
-        content,
-    )
-
-    if content == original:
-        print(f"警告: 未找到 FAIL_ON_PROJECT_REPOS，检查文件内容...")
-        # 打印关键行辅助诊断
-        for i, line in enumerate(content.splitlines(), 1):
-            if any(kw in line for kw in ['repositoriesMode', 'maven', 'FAIL', 'PREFER']):
-                print(f"  L{i}: {line}")
-        return False
 
     # 备份
     backup = settings_file.with_suffix('.kts.orig')
@@ -71,7 +62,7 @@ def fix_settings_gradle(settings_file: Path) -> bool:
         shutil.copy2(settings_file, backup)
         print(f"✓ 已备份到 {backup.name}")
 
-    settings_file.write_text(content, encoding='utf-8')
+    settings_file.write_text(content + PATCH_BLOCK, encoding='utf-8')
     print(f"✓ 已修复 {settings_file}")
     return True
 
@@ -92,8 +83,7 @@ def main():
     if not fix_settings_gradle(settings_file):
         sys.exit(1)
 
-    print("\n✓ 修复完成！")
-    print("现在可以直接运行 Gradle 构建（无需重新生成项目）：")
+    print("\n✓ 修复完成！可以直接用 flutter 构建（跳过重复的 flet 前置步骤）：")
     flutter_dir = settings_file.parent.parent
     print(f"  cd {flutter_dir}")
     print("  flutter build apk --release")
