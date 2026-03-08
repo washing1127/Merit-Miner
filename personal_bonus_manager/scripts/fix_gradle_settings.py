@@ -2,17 +2,17 @@
 """
 修复 flet build 生成的 Flutter Android 项目中的 Gradle 构建错误。
 
-根本原因：
-  Gradle 8.11+ / 8.14 对复合构建（includeBuild）中的 maven 仓库命名引入了
-  更严格的检查。Flutter Gradle 工具包（通过 includeBuild 引入）内部会添加
-  未命名的 maven { url } 仓库（默认名称 'maven'），在新版 Gradle 的
-  PREFER_SETTINGS 模式下触发 "Error resolving plugin" 错误。
+根本原因（已确认）：
+  Flutter 工具包 packages/flutter_tools/gradle/settings.gradle.kts 设置了
+  RepositoriesMode.FAIL_ON_PROJECT_REPOS。
+  当 dev.flutter.flutter-plugin-loader 插件在 settings 上下文中运行时，
+  它（通过 native_plugin_loader.gradle.kts 或子项目引入）会添加一个
+  maven { url } 仓库。FAIL_ON_PROJECT_REPOS 触发 repoMutationDisallowedOnProject，
+  Gradle 将其报告为 "settings file 添加了 'maven' 仓库" 错误。
 
-修复策略（双重修复）：
-  1. 降级 gradle-wrapper.properties 中的 Gradle 版本到 8.10
-     （AGP 8.11.1 要求最低 8.9，8.10 是经过充分验证的稳定版本）
-  2. 在 settings.gradle.kts 中替换 gradlePluginPortal() 为带显式名称的
-     maven 块，避免默认名称 'maven' 冲突
+修复策略：
+  将 Flutter 工具包 settings.gradle.kts 中的 FAIL_ON_PROJECT_REPOS 改为
+  PREFER_SETTINGS，允许插件在 settings 上下文中添加仓库而不抛出异常。
 """
 
 import re
@@ -20,24 +20,19 @@ import shutil
 import sys
 from pathlib import Path
 
-# ── Gradle wrapper 目标版本 ──────────────────────────────────────────────────
-TARGET_GRADLE = "8.10"
-TARGET_GRADLE_URL = (
-    f"https\\://services.gradle.org/distributions/"
-    f"gradle-{TARGET_GRADLE}-all.zip"
-)
 
-# ── settings.gradle.kts 补丁标记 ─────────────────────────────────────────────
-SETTINGS_MARKER = "// pbm-gradle-fix-v2"
-
-SETTINGS_PATCH = """\
-
-// pbm-gradle-fix-v2: 替换 gradlePluginPortal() 为显式命名 maven，避免默认 'maven' 命名冲突
-"""
+def find_flutter_sdk(android_dir: Path) -> Path | None:
+    """从 local.properties 中提取 Flutter SDK 路径。"""
+    local_props = android_dir / "local.properties"
+    if not local_props.exists():
+        return None
+    for line in local_props.read_text(encoding='utf-8').splitlines():
+        if line.startswith('flutter.sdk='):
+            return Path(line.split('=', 1)[1].strip())
+    return None
 
 
 def find_android_dir(project_dir: Path) -> Path | None:
-    """找到生成的 Flutter 项目的 android/ 目录。"""
     candidates = [
         project_dir / "build" / "flutter" / "android",
         project_dir / "build" / "android",
@@ -49,76 +44,52 @@ def find_android_dir(project_dir: Path) -> Path | None:
     return found[0] if found else None
 
 
-# ── 修复 1：Gradle wrapper 版本 ──────────────────────────────────────────────
+# ── 核心修复：Flutter 工具包 settings.gradle.kts ─────────────────────────────
 
-def fix_gradle_wrapper(android_dir: Path) -> bool:
-    wrapper_props = android_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
-    if not wrapper_props.exists():
-        print(f"警告: 未找到 {wrapper_props}，跳过 wrapper 修复")
+def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
+    tools_settings = flutter_sdk / "packages" / "flutter_tools" / "gradle" / "settings.gradle.kts"
+
+    if not tools_settings.exists():
+        print(f"警告: 未找到 {tools_settings}，跳过")
         return True
 
-    content = wrapper_props.read_text(encoding='utf-8')
+    content = tools_settings.read_text(encoding='utf-8')
 
-    # 提取当前版本
-    m = re.search(r'distributionUrl=.*gradle-([0-9.]+)-', content)
-    current = m.group(1) if m else "unknown"
-
-    if current == TARGET_GRADLE:
-        print(f"✓ Gradle wrapper 已是 {TARGET_GRADLE}，跳过")
+    if 'FAIL_ON_PROJECT_REPOS' not in content:
+        if 'PREFER_SETTINGS' in content or 'PREFER_PROJECT' in content:
+            print(f"✓ Flutter 工具包 settings 已修复，跳过")
+        else:
+            print(f"✓ Flutter 工具包 settings 无 FAIL_ON_PROJECT_REPOS，跳过")
         return True
 
-    # 备份
-    backup = wrapper_props.with_suffix('.properties.orig')
+    backup = tools_settings.with_suffix('.kts.orig')
     if not backup.exists():
-        shutil.copy2(wrapper_props, backup)
+        shutil.copy2(tools_settings, backup)
+        print(f"✓ Flutter 工具包 settings 已备份到 {backup.name}")
 
-    new_content = re.sub(
-        r'distributionUrl=.*',
-        f'distributionUrl={TARGET_GRADLE_URL}',
-        content,
+    new_content = content.replace(
+        'RepositoriesMode.FAIL_ON_PROJECT_REPOS',
+        'RepositoriesMode.PREFER_SETTINGS',
     )
-    wrapper_props.write_text(new_content, encoding='utf-8')
-    print(f"✓ Gradle wrapper: {current} → {TARGET_GRADLE}  ({wrapper_props})")
+    tools_settings.write_text(new_content, encoding='utf-8')
+    print(f"✓ Flutter 工具包 settings: FAIL_ON_PROJECT_REPOS → PREFER_SETTINGS")
+    print(f"  ({tools_settings})")
     return True
 
 
-# ── 修复 2：settings.gradle.kts pluginManagement 仓库 ────────────────────────
+# ── 还原之前错误的 settings.gradle.kts 补丁 ──────────────────────────────────
 
-def fix_settings_gradle(android_dir: Path) -> bool:
+def restore_app_settings(android_dir: Path) -> bool:
     settings_file = android_dir / "settings.gradle.kts"
-    if not settings_file.exists():
-        print(f"错误: 未找到 {settings_file}", file=sys.stderr)
-        return False
-
-    content = settings_file.read_text(encoding='utf-8')
-
-    if SETTINGS_MARKER in content:
-        print(f"✓ settings.gradle.kts 已应用补丁，跳过")
-        return True
-
-    # 把 gradlePluginPortal() 替换为显式命名的 maven 仓库
-    # 这样就不会产生默认名 'maven'，而是明确叫 'GradlePluginPortal'
-    if 'gradlePluginPortal()' not in content:
-        print("警告: 未找到 gradlePluginPortal()，跳过 settings 修复")
-        return True
-
-    new_content = content.replace(
-        'gradlePluginPortal()',
-        'maven {\n'
-        '            name = "GradlePluginPortal"\n'
-        '            url = uri("https://plugins.gradle.org/m2/")\n'
-        '        }',
-    )
-    new_content += SETTINGS_PATCH
-
-    # 备份
     backup = settings_file.with_suffix('.kts.orig')
-    if not backup.exists():
-        shutil.copy2(settings_file, backup)
-        print(f"✓ 已备份到 {backup.name}")
 
-    settings_file.write_text(new_content, encoding='utf-8')
-    print(f"✓ settings.gradle.kts: 替换 gradlePluginPortal() 为显式命名 maven")
+    if not backup.exists():
+        # 没有备份，可能已经是原始文件
+        return True
+
+    # 恢复为原始文件（移除之前的错误补丁）
+    shutil.copy2(backup, settings_file)
+    print(f"✓ settings.gradle.kts 已从备份恢复（移除之前的无效补丁）")
     return True
 
 
@@ -135,10 +106,20 @@ def main():
         print("请先运行 flet build apk（即使失败也会生成 build/ 目录）", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Android 目录: {android_dir}\n")
+    print(f"Android 目录: {android_dir}")
 
-    ok1 = fix_gradle_wrapper(android_dir)
-    ok2 = fix_settings_gradle(android_dir)
+    flutter_sdk = find_flutter_sdk(android_dir)
+    if not flutter_sdk:
+        print("错误: 无法从 local.properties 读取 flutter.sdk 路径", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Flutter SDK: {flutter_sdk}\n")
+
+    # 步骤 1: 还原 settings.gradle.kts（移除之前的错误补丁）
+    ok1 = restore_app_settings(android_dir)
+
+    # 步骤 2: 修复 Flutter 工具包的 settings.gradle.kts（核心修复）
+    ok2 = fix_flutter_tools_settings(flutter_sdk)
 
     if not (ok1 and ok2):
         sys.exit(1)
@@ -147,6 +128,11 @@ def main():
     flutter_dir = android_dir.parent
     print(f"  cd {flutter_dir}")
     print("  flutter build apk --release")
+    print()
+    print("注意：此修复改动了 Flutter SDK 文件。")
+    print(f"如需还原，运行：")
+    tools_settings = flutter_sdk / "packages" / "flutter_tools" / "gradle" / "settings.gradle.kts"
+    print(f"  cp {tools_settings}.orig {tools_settings}")
 
 
 if __name__ == '__main__':
