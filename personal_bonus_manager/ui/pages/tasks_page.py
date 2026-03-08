@@ -301,6 +301,12 @@ class TasksPage:
         """构建任务页视图。"""
         await self.load_data()
 
+        self.page.floating_action_button = ft.FloatingActionButton(
+            icon=ft.Icons.ADD,
+            on_click=self._on_add_task,
+            tooltip="创建新任务",
+        )
+
         self._content_column = ft.Column(
             self._build_task_list(),
             spacing=8,
@@ -308,35 +314,21 @@ class TasksPage:
             expand=True,
         )
 
-        return ft.Stack(
-            [
-                ft.Container(
-                    content=ft.Column(
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Row(
                         [
-                            ft.Row(
-                                [
-                                    ft.Text("我的任务", size=20, weight=ft.FontWeight.BOLD),
-                                    ft.Text(f"{len(self.tasks)} 个任务",
-                                            size=13, color=ft.Colors.GREY_500),
-                                ],
-                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                            ),
-                            self._content_column,
+                            ft.Text("我的任务", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{len(self.tasks)} 个任务",
+                                    size=13, color=ft.Colors.GREY_500),
                         ],
-                        spacing=12,
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
-                    padding=ft.padding.all(16),
-                    expand=True,
-                ),
-                ft.Container(
-                    content=ft.FloatingActionButton(
-                        icon=ft.Icons.ADD,
-                        on_click=self._on_add_task,
-                        tooltip="创建新任务",
-                    ),
-                    alignment=ft.Alignment.BOTTOM_RIGHT,
-                    padding=ft.padding.all(16),
-                ),
-            ],
+                    self._content_column,
+                ],
+                spacing=12,
+            ),
+            padding=ft.padding.all(16),
             expand=True,
         )
