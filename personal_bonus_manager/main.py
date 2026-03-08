@@ -113,6 +113,7 @@ async def main(page: ft.Page):
     async def switch_page(index: int):
         """切换页面。"""
         page.overlay.clear()
+        page.floating_action_button = None
         loading = ft.Container(
             content=ft.ProgressRing(width=24, height=24, stroke_width=2),
             alignment=ft.Alignment.CENTER,
