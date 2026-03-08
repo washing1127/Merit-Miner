@@ -27,6 +27,7 @@ GRADLE_MIN_VERSION = (8, 13)
 
 # 候选的本地 Gradle 安装路径
 _LOCAL_GRADLE_CANDIDATES = [
+    Path("/opt/gradle-8.14.3"),
     Path("/opt/gradle"),
     Path(os.environ.get("GRADLE_HOME", "/nonexistent")),
 ]
@@ -90,25 +91,43 @@ def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
 
 # ── 查找本地 Gradle 安装 ──────────────────────────────────────────────────────
 
+def _check_gradle_bin(gradle_bin: Path) -> str | None:
+    """检查 gradle 二进制版本，满足最低要求则返回版本字符串，否则返回 None。"""
+    try:
+        result = subprocess.run(
+            [str(gradle_bin), "--version"],
+            capture_output=True, text=True, timeout=60,
+        )
+        m = re.search(r'Gradle\s+(\d+)\.(\d+)', result.stdout)
+        if m:
+            major, minor = int(m.group(1)), int(m.group(2))
+            if (major, minor) >= GRADLE_MIN_VERSION:
+                return re.search(r'Gradle\s+(\S+)', result.stdout).group(1)
+    except Exception:
+        pass
+    return None
+
+
 def find_local_gradle() -> tuple[Path, str] | None:
     """返回满足最低版本要求的本地 Gradle (home, version_str)，否则返回 None。"""
+    # 1. 检查候选安装目录
     for candidate in _LOCAL_GRADLE_CANDIDATES:
         gradle_bin = candidate / "bin" / "gradle"
-        if not gradle_bin.is_file():
-            continue
-        try:
-            result = subprocess.run(
-                [str(gradle_bin), "--version"],
-                capture_output=True, text=True, timeout=10,
-            )
-            m = re.search(r'Gradle\s+(\d+)\.(\d+)', result.stdout)
-            if m:
-                major, minor = int(m.group(1)), int(m.group(2))
-                if (major, minor) >= GRADLE_MIN_VERSION:
-                    version = re.search(r'Gradle\s+(\S+)', result.stdout).group(1)
-                    return candidate, version
-        except Exception:
-            continue
+        if gradle_bin.is_file():
+            v = _check_gradle_bin(gradle_bin)
+            if v:
+                return candidate, v
+
+    # 2. 检查 PATH 中的 gradle（处理 apt 安装等情况）
+    import shutil as _shutil
+    system_gradle = _shutil.which("gradle")
+    if system_gradle:
+        gradle_bin = Path(system_gradle)
+        v = _check_gradle_bin(gradle_bin)
+        if v:
+            # home 目录即 bin 的父级的父级
+            return gradle_bin.parent.parent, v
+
     return None
 
 
