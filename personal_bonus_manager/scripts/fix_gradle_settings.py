@@ -83,34 +83,51 @@ def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
 
 # AGP 8.8.0 需要 Gradle >= 8.10.2（对 8.14.x 无上限限制）
 _TARGET_AGP = "8.8.0"
-# 使用系统安装的 Gradle 版本
-_TARGET_GRADLE = "8.14.3"
+# 系统无合适 Gradle 时的回退版本（flet 0.81.0 原始生成值，让 wrapper 从网络下载）
+_TARGET_GRADLE = "8.13"
+# 接受系统 Gradle 的最低版本（元组，用于版本比较）
+_MIN_GRADLE_VERSION = (8, 10)
 
 # 系统 Gradle 安装路径候选（按优先级）
 _SYSTEM_GRADLE_CANDIDATES = [
     Path("/opt/gradle-8.14.3"),
+    Path("/opt/gradle-8.14"),
+    Path("/opt/gradle-8.13"),
     Path("/opt/gradle"),
     Path("/usr/local/gradle"),
     Path("/usr/share/gradle"),
 ]
 
 
+def _parse_version(version_str: str) -> tuple[int, ...]:
+    """将 '8.14.3' 解析为 (8, 14, 3)。"""
+    try:
+        return tuple(int(x) for x in version_str.split("."))
+    except ValueError:
+        return (0,)
+
+
 def _get_system_gradle() -> tuple[Path, str] | None:
-    """返回 (Gradle安装路径, 版本号)，如果找不到则返回 None。"""
+    """返回 (Gradle安装路径, 版本号)，仅当版本 >= _MIN_GRADLE_VERSION 时返回。"""
     import subprocess
     for candidate in _SYSTEM_GRADLE_CANDIDATES:
         gradle_bin = candidate / "bin" / "gradle"
-        if gradle_bin.is_file():
-            try:
-                result = subprocess.run(
-                    [str(gradle_bin), "--version"],
-                    capture_output=True, text=True, timeout=15,
-                )
-                m = re.search(r'Gradle\s+([\d.]+)', result.stdout)
-                if m:
-                    return candidate, m.group(1)
-            except Exception:
-                pass
+        if not gradle_bin.is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [str(gradle_bin), "--version"],
+                capture_output=True, text=True, timeout=15,
+            )
+            m = re.search(r'Gradle\s+([\d.]+)', result.stdout)
+            if not m:
+                continue
+            version = m.group(1)
+            if _parse_version(version)[:2] >= _MIN_GRADLE_VERSION:
+                return candidate, version
+            # 版本太旧，跳过
+        except Exception:
+            pass
     return None
 
 
