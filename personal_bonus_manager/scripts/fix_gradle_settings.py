@@ -183,6 +183,41 @@ def setup_local_gradle_cache(gradle_home: Path, gradle_version: str, dist_type: 
     return True
 
 
+def cross_cache_gradle_dist(gradle_version: str, dist_type: str, extra_urls: list) -> None:
+    """
+    为额外的 distributionUrl 建立 Gradle 缓存，指向已有的提取目录。
+    解决问题：flet build apk 重新生成项目时使用 services.gradle.org URL，
+    而已下载的缓存是用 Huawei URL 哈希存储的，导致重复下载超时。
+    """
+    gradle_user_home = Path.home() / ".gradle"
+    dist_name = f"gradle-{gradle_version}-{dist_type}"
+    base_dir = gradle_user_home / "wrapper" / "dists" / dist_name
+
+    # 找到已提取的 Gradle 目录
+    extracted_name = f"gradle-{gradle_version}"
+    existing_gradle = None
+    if base_dir.exists():
+        for hash_dir in base_dir.iterdir():
+            candidate = hash_dir / extracted_name
+            if candidate.exists():
+                existing_gradle = candidate
+                break
+
+    if not existing_gradle:
+        return  # 尚未下载，无法创建交叉缓存
+
+    for url in extra_urls:
+        hash_str = _gradle_dist_hash(url)
+        hash_dir = base_dir / hash_str
+        target = hash_dir / extracted_name
+        if target.exists() or target.is_symlink():
+            continue
+        hash_dir.mkdir(parents=True, exist_ok=True)
+        target.symlink_to(existing_gradle.resolve())
+        (hash_dir / f"{dist_name}.zip.ok").touch()
+        print(f"✓ 已为 {url.split('/')[2]} 建立 Gradle {gradle_version} 交叉缓存")
+
+
 # 标准 Gradle Wrapper shell 脚本（与 Gradle 版本无关）
 _GRADLEW_CONTENT = r"""#!/bin/sh
 #
@@ -351,7 +386,15 @@ def fix_gradle_wrapper_version(android_dir: Path) -> bool:
     # 为系统 Gradle 建立 wrapper 缓存（避免网络下载）
     if gradle_home:
         setup_local_gradle_cache(gradle_home, target, dist_type)
-    else:
+
+    # 为 services.gradle.org URL 建立交叉缓存（flet build apk 重新生成项目时使用此 URL）
+    official_url = (
+        f"https://services.gradle.org/distributions/"
+        f"gradle-{target}-{dist_type}.zip"
+    )
+    cross_cache_gradle_dist(target, dist_type, [official_url])
+
+    if not gradle_home and new_dist_url:
         print(f"  镜像地址: {new_dist_url}")
 
     return True
@@ -440,9 +483,13 @@ def main():
         sys.exit(1)
 
     print("\n✓ 修复完成！现在运行：")
-    flutter_dir = android_dir.parent
-    print(f"  cd {flutter_dir}")
-    print("  flutter build apk --release")
+    project_dir_str = android_dir.parent.parent.parent  # build/flutter/android -> project root
+    print(f"  cd {project_dir_str}")
+    print("  flet build apk")
+    print()
+    print("注意：必须用 flet build apk（不是 flutter build apk），")
+    print("  因为 flet 会自动设置 SERIOUS_PYTHON_SITE_PACKAGES 环境变量。")
+    print("  Gradle 8.13 已缓存，不会再从网络下载。")
     print()
     print("注意：此修复改动了 Flutter SDK 文件。如需还原：")
     tools_settings = flutter_sdk / "packages" / "flutter_tools" / "gradle" / "settings.gradle.kts"
