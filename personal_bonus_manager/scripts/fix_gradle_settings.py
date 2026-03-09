@@ -291,7 +291,8 @@ def restore_gradlew(android_dir: Path) -> bool:
 
 
 def fix_gradle_wrapper_version(android_dir: Path) -> bool:
-    """将 gradle-wrapper.properties 更新为系统安装的 Gradle 版本，并建立本地缓存。"""
+    """将 gradle-wrapper.properties 更新为系统安装的 Gradle 版本，并建立本地缓存。
+    若无本地 Gradle，将 distributionUrl 改为国内镜像以避免超时。"""
     wrapper_props = android_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
     if not wrapper_props.exists():
         return True
@@ -311,22 +312,47 @@ def fix_gradle_wrapper_version(android_dir: Path) -> bool:
         gradle_home = None
         target = _TARGET_GRADLE
 
-    if current == target:
-        print(f"✓ Gradle wrapper 已是 {target}，跳过版本更新")
+    # 构造新的 distributionUrl
+    if gradle_home:
+        new_dist_url = None  # 有本地 Gradle，仅改版本即可
     else:
+        # 国内镜像（华为云，有完整 Gradle 发行包）
+        new_dist_url = (
+            f"https://repo.huaweicloud.com/gradle/"
+            f"gradle-{target}-{dist_type}.zip"
+        )
+
+    new_content = content
+    # 更新版本号
+    if current != target:
         new_content = re.sub(
             r'(gradle-)[\d.]+(-(?:bin|all)\.zip)',
             rf'\g<1>{target}\2',
-            content,
+            new_content,
         )
-        wrapper_props.write_text(new_content, encoding='utf-8')
         print(f"✓ Gradle wrapper: {current} → {target}")
+    else:
+        print(f"✓ Gradle wrapper 已是 {target}，跳过版本更新")
+
+    # 更新 distributionUrl（替换为国内镜像）
+    if new_dist_url:
+        if new_dist_url not in new_content:
+            new_content = re.sub(
+                r'^distributionUrl=.*$',
+                f'distributionUrl={new_dist_url}',
+                new_content,
+                flags=re.MULTILINE,
+            )
+            print(f"✓ distributionUrl → 华为云镜像（避免 services.gradle.org 超时）")
+
+    if new_content != content:
+        wrapper_props.write_text(new_content, encoding='utf-8')
 
     # 为系统 Gradle 建立 wrapper 缓存（避免网络下载）
     if gradle_home:
         setup_local_gradle_cache(gradle_home, target, dist_type)
     else:
-        print(f"⚠ 未找到系统 Gradle 安装，wrapper 将从网络下载 {target}")
+        print(f"  镜像地址: {new_dist_url}")
 
     return True
 
