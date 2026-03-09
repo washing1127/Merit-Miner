@@ -16,6 +16,7 @@
 """
 
 import hashlib
+import os
 import re
 import shutil
 import stat
@@ -426,6 +427,106 @@ def fix_agp_version(android_dir: Path) -> bool:
     return True
 
 
+# ── serious_python_android：GitHub 下载修复 ───────────────────────────────────
+
+# GitHub 代理（用于国内无法直连 GitHub 的场景）
+_GITHUB_PROXY = "https://ghproxy.net/"
+
+
+def configure_gradle_proxy() -> bool:
+    """
+    读取系统代理环境变量，写入 ~/.gradle/gradle.properties。
+    Gradle 本身不会自动继承 HTTPS_PROXY，需要 systemProp.* 显式配置。
+    Flutter doctor 警告 'NO_PROXY is not set' 说明系统已有代理但 Gradle 未使用。
+    """
+    from urllib.parse import urlparse
+
+    proxy_url = (
+        os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy') or
+        os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
+    )
+    if not proxy_url:
+        return False  # 没有系统代理
+
+    parsed = urlparse(proxy_url)
+    host = parsed.hostname or ''
+    port = parsed.port or 8080
+    if not host:
+        return False
+
+    gradle_home = Path.home() / ".gradle"
+    gradle_home.mkdir(parents=True, exist_ok=True)
+    gradle_props = gradle_home / "gradle.properties"
+    content = gradle_props.read_text('utf-8') if gradle_props.exists() else ''
+
+    if f'systemProp.https.proxyHost={host}' in content:
+        print(f"✓ Gradle 代理已配置 ({host}:{port})，跳过")
+        return True
+
+    # 移除旧的代理条目
+    content = re.sub(r'systemProp\.(https?|HTTPS?)\.proxy(Host|Port)=.*\n?', '', content)
+    content = content.rstrip('\n') + (
+        f'\nsystemProp.https.proxyHost={host}\n'
+        f'systemProp.https.proxyPort={port}\n'
+        f'systemProp.http.proxyHost={host}\n'
+        f'systemProp.http.proxyPort={port}\n'
+    )
+    gradle_props.write_text(content, 'utf-8')
+    print(f"✓ 已将系统代理写入 ~/.gradle/gradle.properties ({host}:{port})")
+    return True
+
+
+def patch_serious_python_github_urls() -> bool:
+    """
+    将 serious_python_android build.gradle 中的 GitHub URL 替换为代理地址。
+    在没有系统代理时使用，避免直连 GitHub 超时。
+    """
+    pub_cache = Path.home() / ".pub-cache" / "hosted"
+    sp_builds = list(pub_cache.glob("*/serious_python_android-*/android/build.gradle"))
+    if not sp_builds:
+        return True
+
+    patched = False
+    for build_gradle in sp_builds:
+        content = build_gradle.read_text('utf-8')
+        if _GITHUB_PROXY in content:
+            print(f"✓ serious_python_android: GitHub 代理已配置，跳过")
+            continue
+        if 'github.com' not in content:
+            continue
+        new_content = re.sub(
+            r'(https://)(github\.com/)',
+            rf'\1{_GITHUB_PROXY.rstrip("/")}/\2',
+            content,
+        )
+        if new_content == content:
+            # 尝试直接替换
+            new_content = content.replace(
+                'https://github.com/',
+                f'{_GITHUB_PROXY}https://github.com/',
+            )
+        if new_content != content:
+            build_gradle.write_text(new_content, 'utf-8')
+            print(f"✓ serious_python_android: GitHub URL → {_GITHUB_PROXY}")
+            patched = True
+
+    if not patched and sp_builds:
+        print(f"✓ serious_python_android: 未找到需要替换的 GitHub URL")
+    return True
+
+
+def fix_serious_python_downloads() -> bool:
+    """修复 serious_python_android 无法从 GitHub 下载 Python 发行版的问题。"""
+    # 优先：将系统代理配置到 Gradle
+    has_proxy = configure_gradle_proxy()
+
+    if not has_proxy:
+        # 回退：将 GitHub URL 替换为代理地址
+        print("⚠ 未检测到系统代理，将使用 GitHub 加速代理下载 Python 发行版")
+        patch_serious_python_github_urls()
+    return True
+
+
 # ── 还原之前错误的 settings.gradle.kts 补丁 ──────────────────────────────────
 
 def restore_app_settings(android_dir: Path) -> bool:
@@ -479,7 +580,10 @@ def main():
     # 步骤 5: 降级 AGP 至 8.8.0（与 Gradle 8.10.2+ 兼容）
     ok5 = fix_agp_version(android_dir)
 
-    if not (ok1 and ok2 and ok3 and ok4 and ok5):
+    # 步骤 6: 修复 serious_python_android 的 GitHub 下载（代理或 URL 替换）
+    ok6 = fix_serious_python_downloads()
+
+    if not (ok1 and ok2 and ok3 and ok4 and ok5 and ok6):
         sys.exit(1)
 
     print("\n✓ 修复完成！现在运行：")
