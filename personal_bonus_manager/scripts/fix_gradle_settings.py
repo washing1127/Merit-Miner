@@ -15,6 +15,7 @@
   PREFER_SETTINGS，允许插件在 settings 上下文中添加仓库而不抛出异常。
 """
 
+import hashlib
 import re
 import shutil
 import stat
@@ -80,10 +81,89 @@ def fix_flutter_tools_settings(flutter_sdk: Path) -> bool:
 
 # ── 恢复 gradlew 原始 wrapper + 降级 AGP ─────────────────────────────────────
 
-# AGP 8.8.0 是最后一个支持 Gradle 8.10 的版本
+# AGP 8.8.0 需要 Gradle >= 8.10.2（对 8.14.x 无上限限制）
 _TARGET_AGP = "8.8.0"
-# Gradle wrapper 版本（已缓存，无需网络）
-_TARGET_GRADLE = "8.10"
+# 使用系统安装的 Gradle 版本
+_TARGET_GRADLE = "8.14.3"
+
+# 系统 Gradle 安装路径候选（按优先级）
+_SYSTEM_GRADLE_CANDIDATES = [
+    Path("/opt/gradle-8.14.3"),
+    Path("/opt/gradle"),
+    Path("/usr/local/gradle"),
+    Path("/usr/share/gradle"),
+]
+
+
+def _get_system_gradle() -> tuple[Path, str] | None:
+    """返回 (Gradle安装路径, 版本号)，如果找不到则返回 None。"""
+    import subprocess
+    for candidate in _SYSTEM_GRADLE_CANDIDATES:
+        gradle_bin = candidate / "bin" / "gradle"
+        if gradle_bin.is_file():
+            try:
+                result = subprocess.run(
+                    [str(gradle_bin), "--version"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                m = re.search(r'Gradle\s+([\d.]+)', result.stdout)
+                if m:
+                    return candidate, m.group(1)
+            except Exception:
+                pass
+    return None
+
+
+def _gradle_dist_hash(url: str) -> str:
+    """复现 Gradle PathAssembler 的哈希算法：MD5 → BigInteger → base36。"""
+    digest = hashlib.md5(url.encode('ascii')).digest()
+    num = int.from_bytes(digest, 'big')
+    chars = "0123456789abcdefghijklmnopqrstuvwxyz"
+    if num == 0:
+        return "0"
+    result = ""
+    while num:
+        result = chars[num % 36] + result
+        num //= 36
+    return result
+
+
+def setup_local_gradle_cache(gradle_home: Path, gradle_version: str, dist_type: str) -> bool:
+    """
+    构造 ~/.gradle/wrapper/dists/ 缓存目录，使 Gradle Wrapper 直接使用
+    系统安装的 Gradle，无需下载。
+
+    缓存结构与 Gradle 内部一致：
+      ~/.gradle/wrapper/dists/gradle-VERSION-TYPE/HASH/gradle-VERSION/  ← 符号链接
+      ~/.gradle/wrapper/dists/gradle-VERSION-TYPE/HASH/gradle-VERSION-TYPE.zip.ok
+    """
+    dist_url = (
+        f"https://services.gradle.org/distributions/"
+        f"gradle-{gradle_version}-{dist_type}.zip"
+    )
+    hash_str = _gradle_dist_hash(dist_url)
+
+    gradle_user_home = Path.home() / ".gradle"
+    dist_name = f"gradle-{gradle_version}-{dist_type}"
+    hash_dir = gradle_user_home / "wrapper" / "dists" / dist_name / hash_str
+    extracted_dir = hash_dir / f"gradle-{gradle_version}"
+
+    if extracted_dir.exists() or extracted_dir.is_symlink():
+        print(f"✓ Gradle {gradle_version} wrapper 缓存已存在，跳过")
+        return True
+
+    hash_dir.mkdir(parents=True, exist_ok=True)
+    extracted_dir.symlink_to(gradle_home)
+
+    # Gradle wrapper 检查 .ok 标记文件
+    ok_file = hash_dir / f"{dist_name}.zip.ok"
+    ok_file.touch()
+
+    print(
+        f"✓ 已建立 Gradle {gradle_version} 本地缓存：\n"
+        f"  {extracted_dir} → {gradle_home}"
+    )
+    return True
 
 
 # 标准 Gradle Wrapper shell 脚本（与 Gradle 版本无关）
@@ -194,30 +274,48 @@ def restore_gradlew(android_dir: Path) -> bool:
 
 
 def fix_gradle_wrapper_version(android_dir: Path) -> bool:
-    """将 gradle-wrapper.properties 恢复为 8.10（已缓存，无需下载）。"""
+    """将 gradle-wrapper.properties 更新为系统安装的 Gradle 版本，并建立本地缓存。"""
     wrapper_props = android_dir / "gradle" / "wrapper" / "gradle-wrapper.properties"
     if not wrapper_props.exists():
         return True
     content = wrapper_props.read_text(encoding='utf-8')
-    m = re.search(r'gradle-([\d.]+)-(?:bin|all)\.zip', content)
+    m = re.search(r'gradle-([\d.]+)-(bin|all)\.zip', content)
     if not m:
         return True
     current = m.group(1)
-    if current == _TARGET_GRADLE:
-        print(f"✓ Gradle wrapper 已是 {_TARGET_GRADLE}，跳过")
-        return True
-    new_content = re.sub(
-        r'(gradle-)[\d.]+(-(?:bin|all)\.zip)',
-        rf'\g<1>{_TARGET_GRADLE}\2',
-        content,
-    )
-    wrapper_props.write_text(new_content, encoding='utf-8')
-    print(f"✓ Gradle wrapper: {current} → {_TARGET_GRADLE}（已缓存，无需下载）")
+    dist_type = m.group(2)  # "bin" 或 "all"
+
+    # 检测系统 Gradle
+    sys_gradle = _get_system_gradle()
+    if sys_gradle:
+        gradle_home, detected_version = sys_gradle
+        target = detected_version
+    else:
+        gradle_home = None
+        target = _TARGET_GRADLE
+
+    if current == target:
+        print(f"✓ Gradle wrapper 已是 {target}，跳过版本更新")
+    else:
+        new_content = re.sub(
+            r'(gradle-)[\d.]+(-(?:bin|all)\.zip)',
+            rf'\g<1>{target}\2',
+            content,
+        )
+        wrapper_props.write_text(new_content, encoding='utf-8')
+        print(f"✓ Gradle wrapper: {current} → {target}")
+
+    # 为系统 Gradle 建立 wrapper 缓存（避免网络下载）
+    if gradle_home:
+        setup_local_gradle_cache(gradle_home, target, dist_type)
+    else:
+        print(f"⚠ 未找到系统 Gradle 安装，wrapper 将从网络下载 {target}")
+
     return True
 
 
 def fix_agp_version(android_dir: Path) -> bool:
-    """将 AGP 版本降至 8.8.0（与 Gradle 8.10 兼容）。"""
+    """将 AGP 版本降至 8.8.0（与 Gradle 8.10.2+ / 8.14.x 兼容）。"""
     settings = android_dir / "settings.gradle.kts"
     if not settings.exists():
         return True
@@ -289,10 +387,10 @@ def main():
     # 步骤 3: 恢复 gradlew（撤销之前的错误修改）
     ok3 = restore_gradlew(android_dir)
 
-    # 步骤 4: 将 Gradle wrapper 恢复为 8.10（已缓存，无需下载）
+    # 步骤 4: 更新 Gradle wrapper 为系统版本并建立本地缓存
     ok4 = fix_gradle_wrapper_version(android_dir)
 
-    # 步骤 5: 降级 AGP 至 8.8.0（与 Gradle 8.10 兼容）
+    # 步骤 5: 降级 AGP 至 8.8.0（与 Gradle 8.10.2+ 兼容）
     ok5 = fix_agp_version(android_dir)
 
     if not (ok1 and ok2 and ok3 and ok4 and ok5):
