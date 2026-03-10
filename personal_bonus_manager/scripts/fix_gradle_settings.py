@@ -517,14 +517,45 @@ def patch_serious_python_github_urls() -> bool:
 
 def fix_serious_python_downloads() -> bool:
     """修复 serious_python_android 无法从 GitHub 下载 Python 发行版的问题。"""
-    # 优先：将系统代理配置到 Gradle
-    has_proxy = configure_gradle_proxy()
+    # 始终将系统代理配置到 Gradle（用于 Maven 仓库等非 GitHub 下载）
+    configure_gradle_proxy()
 
-    if not has_proxy:
-        # 回退：将 GitHub URL 替换为代理地址
-        print("⚠ 未检测到系统代理，将使用 GitHub 加速代理下载 Python 发行版")
-        patch_serious_python_github_urls()
+    # 始终将 GitHub URL 替换为 ghproxy.net（专为 GitHub 下载优化的 CDN）
+    # 原因：系统代理连接 GitHub 大文件时 Read timed out，ghproxy.net 更稳定
+    patch_serious_python_github_urls()
+
+    # 创建 Gradle init script，将下载超时增加至 10 分钟
+    _create_gradle_download_init_script()
+
     return True
+
+
+def _create_gradle_download_init_script() -> None:
+    """创建 ~/.gradle/init.d/download-timeout.gradle，增加下载任务超时时间。"""
+    init_dir = Path.home() / ".gradle" / "init.d"
+    init_dir.mkdir(parents=True, exist_ok=True)
+    init_file = init_dir / "download-timeout.gradle"
+
+    script = """\
+// 增加 de.undercouch gradle-download-task 的超时时间
+// 避免从慢速代理下载大文件时 Read timed out
+allprojects {
+    tasks.configureEach { t ->
+        if (t.class.name.contains('Download')) {
+            try {
+                t.readTimeout = 600_000    // 10 分钟
+                t.connectTimeout = 30_000  // 30 秒
+            } catch (ignored) {}
+        }
+    }
+}
+"""
+    if init_file.exists() and 'readTimeout = 600' in init_file.read_text('utf-8'):
+        print("✓ Gradle 下载超时已配置，跳过")
+        return
+
+    init_file.write_text(script, 'utf-8')
+    print("✓ 已创建 ~/.gradle/init.d/download-timeout.gradle（下载超时 10 分钟）")
 
 
 # ── 还原之前错误的 settings.gradle.kts 补丁 ──────────────────────────────────
