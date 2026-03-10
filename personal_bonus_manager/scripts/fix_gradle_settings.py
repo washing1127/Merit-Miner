@@ -627,13 +627,10 @@ def main():
     # 步骤 4: 更新 Gradle wrapper 为系统版本并建立本地缓存
     ok4 = fix_gradle_wrapper_version(android_dir)
 
-    # 步骤 5: 降级 AGP 至 8.8.0（与 Gradle 8.10.2+ 兼容）
-    ok5 = fix_agp_version(android_dir)
+    # 步骤 5: 修复 serious_python_android 的 GitHub 下载（代理或 URL 替换）
+    ok5 = fix_serious_python_downloads()
 
-    # 步骤 6: 修复 serious_python_android 的 GitHub 下载（代理或 URL 替换）
-    ok6 = fix_serious_python_downloads()
-
-    if not (ok1 and ok2 and ok3 and ok4 and ok5 and ok6):
+    if not (ok1 and ok2 and ok3 and ok4 and ok5):
         sys.exit(1)
 
     print("\n✓ 修复完成！现在运行：")
