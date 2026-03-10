@@ -577,6 +577,65 @@ allprojects {
     print("✓ 已创建 ~/.gradle/init.d/download-timeout.gradle（下载超时 10 分钟）")
 
 
+# ── libc++_shared.so 打包修复 ─────────────────────────────────────────────────
+
+def fix_libcpp_shared(android_dir: Path) -> bool:
+    """
+    将 libc++_shared.so 从 Android NDK 复制到 jniLibs，使其随 APK 一起打包。
+
+    根本原因：greenlet（SQLAlchemy 的依赖）的 Android .so 文件动态链接了
+    libc++_shared.so，但 Android 系统中没有这个库，需要由 APK 自带。
+    """
+    android_sdk = Path(
+        os.environ.get('ANDROID_HOME') or
+        os.environ.get('ANDROID_SDK_ROOT') or
+        Path.home() / 'Android' / 'Sdk'
+    )
+    ndk_base = android_sdk / 'ndk'
+    if not ndk_base.exists():
+        print("⚠ 未找到 Android NDK，跳过 libc++_shared.so 修复")
+        return True
+
+    ndk_versions = sorted([d for d in ndk_base.iterdir() if d.is_dir()])
+    if not ndk_versions:
+        print("⚠ NDK 目录为空，跳过")
+        return True
+    ndk = ndk_versions[-1]
+
+    # ABI → NDK sysroot 三元组
+    arch_map = {
+        'arm64-v8a':    'aarch64-linux-android',
+        'armeabi-v7a':  'arm-linux-androideabi',
+        'x86_64':       'x86_64-linux-android',
+        'x86':          'i686-linux-android',
+    }
+
+    prebuilt = ndk / 'toolchains' / 'llvm' / 'prebuilt' / 'linux-x86_64' / 'sysroot' / 'usr' / 'lib'
+    jni_libs = android_dir / 'app' / 'src' / 'main' / 'jniLibs'
+
+    copied, skipped = [], []
+    for abi, triple in arch_map.items():
+        src = prebuilt / triple / 'libc++_shared.so'
+        if not src.exists():
+            continue
+        dest_dir = jni_libs / abi
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / 'libc++_shared.so'
+        if dest.exists():
+            skipped.append(abi)
+        else:
+            shutil.copy2(src, dest)
+            copied.append(abi)
+
+    if copied:
+        print(f"✓ 已将 libc++_shared.so 加入 jniLibs: {', '.join(copied)}")
+    if skipped:
+        print(f"✓ libc++_shared.so 已存在: {', '.join(skipped)}")
+    if not copied and not skipped:
+        print("⚠ NDK 中未找到 libc++_shared.so，可能路径不同")
+    return True
+
+
 # ── 还原之前错误的 settings.gradle.kts 补丁 ──────────────────────────────────
 
 def restore_app_settings(android_dir: Path) -> bool:
@@ -630,7 +689,10 @@ def main():
     # 步骤 5: 修复 serious_python_android 的 GitHub 下载（代理或 URL 替换）
     ok5 = fix_serious_python_downloads()
 
-    if not (ok1 and ok2 and ok3 and ok4 and ok5):
+    # 步骤 6: 将 libc++_shared.so 加入 jniLibs（修复 greenlet 运行时崩溃）
+    ok6 = fix_libcpp_shared(android_dir)
+
+    if not (ok1 and ok2 and ok3 and ok4 and ok5 and ok6):
         sys.exit(1)
 
     print("\n✓ 修复完成！现在运行：")
