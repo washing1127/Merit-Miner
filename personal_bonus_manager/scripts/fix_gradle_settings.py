@@ -479,7 +479,7 @@ def configure_gradle_proxy() -> bool:
 def patch_serious_python_github_urls() -> bool:
     """
     将 serious_python_android build.gradle 中的 GitHub URL 替换为代理地址。
-    在没有系统代理时使用，避免直连 GitHub 超时。
+    ghproxy.net 格式：https://ghproxy.net/https://github.com/...
     """
     pub_cache = Path.home() / ".pub-cache" / "hosted"
     sp_builds = list(pub_cache.glob("*/serious_python_android-*/android/build.gradle"))
@@ -489,25 +489,19 @@ def patch_serious_python_github_urls() -> bool:
     patched = False
     for build_gradle in sp_builds:
         content = build_gradle.read_text('utf-8')
-        if _GITHUB_PROXY in content:
+        if _GITHUB_PROXY + 'https://github.com/' in content:
             print(f"✓ serious_python_android: GitHub 代理已配置，跳过")
             continue
         if 'github.com' not in content:
             continue
-        new_content = re.sub(
-            r'(https://)(github\.com/)',
-            rf'\1{_GITHUB_PROXY.rstrip("/")}/\2',
-            content,
+        # 正确格式：将 https://github.com/ 替换为 https://ghproxy.net/https://github.com/
+        new_content = content.replace(
+            'https://github.com/',
+            f'{_GITHUB_PROXY}https://github.com/',
         )
-        if new_content == content:
-            # 尝试直接替换
-            new_content = content.replace(
-                'https://github.com/',
-                f'{_GITHUB_PROXY}https://github.com/',
-            )
         if new_content != content:
             build_gradle.write_text(new_content, 'utf-8')
-            print(f"✓ serious_python_android: GitHub URL → {_GITHUB_PROXY}")
+            print(f"✓ serious_python_android: GitHub URL → {_GITHUB_PROXY}https://github.com/")
             patched = True
 
     if not patched and sp_builds:
