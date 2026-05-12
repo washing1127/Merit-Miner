@@ -63,15 +63,30 @@ else
     fi
 fi
 
-# 找到生成的 APK
-APK_PATH=$(find "$FLUTTER_DIR/build/app/outputs" -name "*.apk" 2>/dev/null | head -1)
+# 找到生成的 APK（兼容 flet 新旧版本的不同输出路径）
+APK_PATH=""
+for search_dir in "$PROJECT_DIR/build/apk" "$FLUTTER_DIR/build/app/outputs"; do
+    FOUND=$(find "$search_dir" -name "*.apk" 2>/dev/null | head -1)
+    if [ -n "$FOUND" ]; then
+        APK_PATH="$FOUND"
+        break
+    fi
+done
+
 if [ -n "$APK_PATH" ]; then
     mkdir -p "$PROJECT_DIR/build"
     cp "$APK_PATH" "$PROJECT_DIR/build/app-release.apk"
+    # 复制到 Nutstore
+    NUTSTORE_DIR="/mnt/c/Users/10145/Nutstore/1/documents"
+    if [ -d "$NUTSTORE_DIR" ]; then
+        cp "$APK_PATH" "$NUTSTORE_DIR/PBM-v1.0.apk"
+        echo "已复制到 Nutstore: $NUTSTORE_DIR/PBM-v1.0.apk"
+    fi
     echo ""
     echo "=== 构建完成 ==="
     echo "APK: $PROJECT_DIR/build/app-release.apk"
 else
     echo "=== 构建完成 ==="
-    echo "APK 文件位于 $FLUTTER_DIR/build/app/outputs/"
+    echo "未找到 APK 文件"
+    exit 1
 fi
