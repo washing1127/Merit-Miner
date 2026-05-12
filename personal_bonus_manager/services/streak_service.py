@@ -1,4 +1,4 @@
-"""连续打卡计算与补卡逻辑服务。"""
+"""Streak calculation, check-in, makeup, and penalty logic."""
 
 from datetime import datetime, timedelta
 
@@ -15,24 +15,26 @@ from repositories.task_repo import (
     get_unchecked_dates,
     update_task,
 )
+from services.repeat_service import is_task_due_on, get_due_dates_between
 
 
 def _normalize_date(dt: datetime) -> datetime:
-    """将 datetime 归一化到当天 00:00:00。"""
     return dt.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-async def calculate_streak(task_id: int) -> int:
-    """计算指定任务的当前连续打卡天数。
+PENALTY_LOOKBACK_DAYS = 7
 
-    从今天往前逐天检查，遇到无打卡记录（或标记为 missed）时停止。
-    normal 和 overdue 状态均计为有效打卡。
+
+async def calculate_streak(task_id: int) -> int:
+    """Calculate current consecutive days streak for a task.
+
+    Walks backward from today; stops at the first day with no valid check-in.
+    Both NORMAL and OVERDUE statuses count as valid.
     """
     records = await get_checkin_records(task_id)
     if not records:
         return 0
 
-    # 构建已打卡日期集合（排除 missed）
     checked_dates: set[str] = set()
     for r in records:
         if r.status != CheckinStatus.MISSED:
@@ -40,7 +42,6 @@ async def calculate_streak(task_id: int) -> int:
 
     today = _normalize_date(datetime.now())
     streak = 0
-
     for i in range(len(checked_dates) + 1):
         check_date = today - timedelta(days=i)
         date_str = check_date.strftime("%Y-%m-%d")
@@ -48,29 +49,22 @@ async def calculate_streak(task_id: int) -> int:
             streak += 1
         else:
             break
-
     return streak
 
 
 async def checkin_today(task_id: int) -> tuple[bool, str]:
-    """为指定任务执行今日打卡。
-
-    Returns:
-        (success, message): 是否成功及提示信息
-    """
+    """Check in *task_id* for today. Returns (success, message)."""
     today = _normalize_date(datetime.now())
 
-    # 检查今天是否已打卡
     existing = await get_checkin_for_date(task_id, today)
     if existing:
-        return False, "今天已经打卡过了"
+        return False, "今天已经打过卡了"
 
-    # 获取任务信息
     task = await get_task_by_id(task_id)
     if not task:
         return False, "任务不存在"
 
-    # 创建打卡记录
+    # --- Create the check-in record ---
     record = CheckinRecord(
         task_id=task_id,
         checkin_date=today,
@@ -79,7 +73,7 @@ async def checkin_today(task_id: int) -> tuple[bool, str]:
     )
     await create_checkin(record)
 
-    # 更新连续天数
+    # --- Update streak ---
     streak = await calculate_streak(task_id)
     task.current_streak = streak
     if streak > task.max_streak:
@@ -87,45 +81,88 @@ async def checkin_today(task_id: int) -> tuple[bool, str]:
     task.last_completed_date = datetime.now()
     await update_task(task)
 
-    # 奖金发放信息
+    # --- Penalty check ---
+    penalty_msg = ""
+    if task.penalty_enabled and task.penalty_amount > 0:
+        penalty_msg = await _apply_penalty(task)
+
     reward_msg = ""
     if task.task_type == TaskType.REWARD and task.reward_amount > 0:
-        reward_msg = f"，获得奖金 {task.reward_amount:.2f}"
+        reward_msg = f"，奖金 +{task.reward_amount:.2f}"
 
-    return True, f"打卡成功！连续 {streak} 天{reward_msg}"
+    return True, f"打卡成功！连续 {streak} 天{reward_msg}{penalty_msg}"
+
+
+async def _apply_penalty(task: Task) -> str:
+    """Check for missed due dates and apply penalties.
+
+    Returns a message describing penalties applied (empty string if none).
+    """
+    today = _normalize_date(datetime.now())
+
+    # Find the last check-in date before today
+    last_checkin_date: datetime | None = None
+    for i in range(1, PENALTY_LOOKBACK_DAYS + 1):
+        candidate = today - timedelta(days=i)
+        record = await get_checkin_for_date(task.id, candidate)
+        if record is not None:
+            last_checkin_date = candidate
+            break
+
+    # Determine range to check for missed dates
+    if last_checkin_date is None:
+        # First check-in ever — check from task creation
+        search_start = _normalize_date(task.created_at)
+    else:
+        search_start = last_checkin_date + timedelta(days=1)
+
+    search_end = today - timedelta(days=1)
+    if search_start > search_end:
+        return ""
+
+    missed_dates = get_due_dates_between(task, search_start, search_end)
+    if not missed_dates:
+        return ""
+
+    # Apply penalties
+    from services.logic_service import record_penalty
+    total_penalty = 0.0
+    for missed_date in missed_dates:
+        # Skip if a check-in already exists for that date
+        existing = await get_checkin_for_date(task.id, missed_date)
+        if existing is not None:
+            continue
+        await record_penalty(
+            amount=task.penalty_amount,
+            task_title=task.title,
+            penalty_date=missed_date,
+        )
+        total_penalty += task.penalty_amount
+
+    if total_penalty > 0:
+        return f"，断签惩罚 -{total_penalty:.2f}（{len(missed_dates)} 天）"
+    return ""
 
 
 async def makeup_checkin(task_id: int, target_date: datetime) -> tuple[bool, str]:
-    """为指定任务补打卡。
-
-    Args:
-        task_id: 任务 ID
-        target_date: 需要补卡的日期
-
-    Returns:
-        (success, message): 是否成功及提示信息
-    """
+    """Make up a missed check-in for *target_date*."""
     target = _normalize_date(target_date)
     today = _normalize_date(datetime.now())
 
-    # 验证补卡日期在允许窗口内
     days_diff = (today - target).days
     if days_diff < 0:
         return False, "不能补打卡未来的日期"
     if days_diff >= MAKEUP_WINDOW_DAYS:
-        return False, f"只能补打卡最近 {MAKEUP_WINDOW_DAYS} 天内的日期"
+        return False, f"只能补打卡最近 {MAKEUP_WINDOW_DAYS} 天"
 
-    # 检查目标日期是否已打卡
     existing = await get_checkin_for_date(task_id, target)
     if existing:
         return False, f"{target.strftime('%m-%d')} 已有打卡记录"
 
-    # 获取任务信息
     task = await get_task_by_id(task_id)
     if not task:
         return False, "任务不存在"
 
-    # 创建补卡记录
     record = CheckinRecord(
         task_id=task_id,
         checkin_date=target,
@@ -134,7 +171,6 @@ async def makeup_checkin(task_id: int, target_date: datetime) -> tuple[bool, str
     )
     await create_checkin(record)
 
-    # 重新计算连续天数
     streak = await calculate_streak(task_id)
     task.current_streak = streak
     if streak > task.max_streak:
@@ -144,11 +180,10 @@ async def makeup_checkin(task_id: int, target_date: datetime) -> tuple[bool, str
 
     reward_msg = ""
     if task.task_type == TaskType.REWARD and task.reward_amount > 0:
-        reward_msg = f"，获得奖金 {task.reward_amount:.2f}"
+        reward_msg = f"，奖金 +{task.reward_amount:.2f}"
 
     return True, f"补卡成功（{target.strftime('%m-%d')}），连续 {streak} 天{reward_msg}"
 
 
 async def get_available_makeup_dates(task_id: int) -> list[datetime]:
-    """获取指定任务可补卡的日期列表。"""
     return await get_unchecked_dates(task_id, MAKEUP_WINDOW_DAYS)

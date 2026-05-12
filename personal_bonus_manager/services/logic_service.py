@@ -1,4 +1,4 @@
-"""双账户业务逻辑服务。处理奖金余额计算、账单校验等核心逻辑。"""
+"""Dual-account business logic: bonus balance, transactions, and stats."""
 
 from datetime import datetime, timedelta
 
@@ -13,6 +13,29 @@ from repositories.transaction_repo import (
     get_all_transactions,
 )
 from repositories.category_repo import get_category_by_name
+from services.repeat_service import is_task_due_on
+
+
+async def record_penalty(
+    amount: float,
+    task_title: str,
+    penalty_date: datetime,
+) -> Transaction:
+    """Record a streak-break penalty as a bonus-related expense."""
+    category = await get_category_by_name("其他")
+    if not category:
+        raise ValueError("Default category '其他' missing")
+
+    txn = Transaction(
+        amount=amount,
+        category_id=category.id,
+        description=f"断签惩罚: {task_title} ({penalty_date.strftime('%m-%d')})",
+        is_bonus_related=True,
+        ai_confidence=1.0,
+        is_verified=True,
+        transaction_date=datetime.now(),
+    )
+    return await create_transaction(txn)
 
 
 async def get_bonus_balance() -> float:
@@ -135,27 +158,28 @@ async def get_monthly_stats(
         cat_id = txn.category_id
         category_breakdown[cat_id] = category_breakdown.get(cat_id, 0) + txn.amount
 
-    # 任务完成率（按天计算）
+    # 任务完成率（按天计算，仅统计当天应打卡的任务）
     days_in_month = (end - start).days
     today = datetime.now()
     effective_days = min(days_in_month, (today - start).days + 1)
     effective_days = max(effective_days, 1)
 
-    total_tasks = len(tasks)
-    if total_tasks == 0:
-        daily_rates = []
-    else:
-        daily_rates = []
-        for day_offset in range(effective_days):
-            day = start + timedelta(days=day_offset)
+    enabled_tasks = [t for t in tasks if t.is_enabled]
+    daily_rates = []
+    for day_offset in range(effective_days):
+        day = start + timedelta(days=day_offset)
+        due_tasks = [t for t in enabled_tasks if is_task_due_on(t, day)]
+        if not due_tasks:
+            daily_rates.append(-1.0)  # -1 means "no tasks due" — displayed as grey
+        else:
             day_completed = 0
-            for task in tasks:
+            for task in due_tasks:
                 records = await get_checkin_records(
                     task.id, start_date=day, end_date=day + timedelta(days=1)
                 )
                 if any(r.status != CheckinStatus.MISSED for r in records):
                     day_completed += 1
-            daily_rates.append(day_completed / total_tasks)
+            daily_rates.append(day_completed / len(due_tasks))
 
     return {
         "bonus_income": bonus_income,

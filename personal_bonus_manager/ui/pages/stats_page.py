@@ -242,24 +242,39 @@ class StatsPage:
         rate_items = []
         for i, rate in enumerate(daily_rates):
             day_num = i + 1
-            color = (
-                ft.Colors.GREEN if rate >= 0.8
-                else ft.Colors.ORANGE if rate >= 0.5
-                else ft.Colors.RED if rate > 0
-                else ft.Colors.GREY_300
-            )
+            if rate < 0:
+                # -1 sentinel: no tasks were due this day
+                color = ft.Colors.GREY_200
+                text_color = ft.Colors.GREY_400
+                tooltip = f"第{day_num}天: 无任务"
+            elif rate >= 0.8:
+                color = ft.Colors.GREEN
+                text_color = ft.Colors.WHITE
+                tooltip = f"第{day_num}天: {rate:.0%}"
+            elif rate >= 0.5:
+                color = ft.Colors.ORANGE
+                text_color = ft.Colors.WHITE
+                tooltip = f"第{day_num}天: {rate:.0%}"
+            elif rate > 0:
+                color = ft.Colors.RED
+                text_color = ft.Colors.WHITE
+                tooltip = f"第{day_num}天: {rate:.0%}"
+            else:
+                color = ft.Colors.GREY_300
+                text_color = ft.Colors.GREY_500
+                tooltip = f"第{day_num}天: 0%"
+
             rate_items.append(
                 ft.Container(
                     content=ft.Text(str(day_num), size=9,
                                     text_align=ft.TextAlign.CENTER,
-                                    color=ft.Colors.WHITE if rate > 0
-                                    else ft.Colors.GREY_500),
+                                    color=text_color),
                     width=28,
                     height=28,
                     bgcolor=color,
                     border_radius=4,
                     alignment=ft.Alignment.CENTER,
-                    tooltip=f"第{day_num}天: {rate:.0%}",
+                    tooltip=tooltip,
                 )
             )
 
@@ -290,6 +305,10 @@ class StatsPage:
                                              bgcolor=ft.Colors.RED,
                                              border_radius=2),
                                 ft.Text("<50%", size=10),
+                                ft.Container(width=10, height=10,
+                                             bgcolor=ft.Colors.GREY_200,
+                                             border_radius=2),
+                                ft.Text("无任务", size=10),
                             ],
                             spacing=6,
                         ),

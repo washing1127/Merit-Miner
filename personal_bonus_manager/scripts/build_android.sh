@@ -32,6 +32,10 @@ python3 scripts/fix_cookiecutter.py
 # 如果 build/flutter/android/settings.gradle.kts 已存在，直接修复后跑 flutter build
 # 避免重新执行耗时的 flet 前置步骤（创建 shell、打包 Python 等）
 SETTINGS_KTS="$FLUTTER_DIR/android/settings.gradle.kts"
+# serious_python_android 需要这个环境变量指向 Python site-packages
+export SERIOUS_PYTHON_SITE_PACKAGES=$(python3 -c "import site; print(site.getsitepackages()[0])")
+echo "SERIOUS_PYTHON_SITE_PACKAGES=$SERIOUS_PYTHON_SITE_PACKAGES"
+
 if [ -f "$SETTINGS_KTS" ]; then
     echo "检测到已有 Flutter 项目，修复 Gradle 配置后直接构建..."
     python3 scripts/fix_gradle_settings.py
