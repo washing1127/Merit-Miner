@@ -965,23 +965,6 @@ class TasksPage:
         await self.load_data()
         self._update_fab()
 
-        async def on_tab_change(e):
-            self._tab_index = e.control.selected_index
-            await self._refresh_ui()
-            if self._content_area:
-                self._content_area.update()
-
-        tab_bar = ft.Tabs(
-            selected_index=0,
-            on_change=on_tab_change,
-            tabs=[
-                ft.Tab(label="今日", icon=ft.Icons.TODAY),
-                ft.Tab(label="全部", icon=ft.Icons.LIST),
-            ],
-            expand=True,
-        )
-
-        # Build initial views
         self._today_col = ft.Column(
             self._build_today_view(),
             spacing=8,
@@ -993,54 +976,38 @@ class TasksPage:
             scroll=ft.ScrollMode.AUTO,
         )
 
-        self._content_area = ft.Container(
-            content=ft.Column(
-                [
-                    tab_bar,
-                    ft.Container(
-                        content=ft.Column(
-                            [self._today_col],  # will be swapped
-                            spacing=8,
-                        ),
-                        expand=True,
-                    ),
-                ],
-                expand=True,
-            ),
-            padding=ft.padding.all(16),
+        tab_content = ft.Container(
+            content=self._today_col,
             expand=True,
         )
 
-        # Actually, Tabs with TabBarView is a better pattern for content switching.
-        # But since we need independent scroll positions, let me use a simple approach:
-        # Show today_col or all_col based on tab selection.
-        # Use a single container that swaps content.
-
-        # Let me rebuild with a simpler approach — no TabBarView, just manual swapping
-        tab_content = ft.Container(expand=True)
-
-        async def on_tab_change2(e):
+        async def on_tab_change(e):
             idx = e.control.selected_index
             tab_content.content = self._today_col if idx == 0 else self._all_col
             tab_content.update()
 
-        tab_bar2 = ft.Tabs(
+        tabs_widget = ft.Tabs(
+            content=ft.Column(
+                [
+                    ft.TabBar(
+                        tabs=[
+                            ft.Tab(label="今日", icon=ft.Icons.TODAY),
+                            ft.Tab(label="全部", icon=ft.Icons.LIST),
+                        ],
+                        on_change=on_tab_change,
+                    ),
+                    tab_content,
+                ],
+                expand=True,
+            ),
+            length=2,
             selected_index=0,
-            on_change=on_tab_change2,
-            tabs=[
-                ft.Tab(label="今日", icon=ft.Icons.TODAY),
-                ft.Tab(label="全部", icon=ft.Icons.LIST),
-            ],
+            animation_duration=300,
             expand=True,
         )
-        tab_content.content = self._today_col
 
         return ft.Container(
-            content=ft.Column(
-                [tab_bar2, tab_content],
-                expand=True,
-                spacing=0,
-            ),
+            content=tabs_widget,
             padding=ft.padding.all(16),
             expand=True,
         )
