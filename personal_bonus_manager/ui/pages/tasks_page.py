@@ -975,8 +975,8 @@ class TasksPage:
             selected_index=0,
             on_change=on_tab_change,
             tabs=[
-                ft.Tab(text="今日", icon=ft.Icons.TODAY),
-                ft.Tab(text="全部", icon=ft.Icons.LIST),
+                ft.Tab(label="今日", icon=ft.Icons.TODAY),
+                ft.Tab(label="全部", icon=ft.Icons.LIST),
             ],
             expand=True,
         )
@@ -1028,8 +1028,8 @@ class TasksPage:
             selected_index=0,
             on_change=on_tab_change2,
             tabs=[
-                ft.Tab(text="今日", icon=ft.Icons.TODAY),
-                ft.Tab(text="全部", icon=ft.Icons.LIST),
+                ft.Tab(label="今日", icon=ft.Icons.TODAY),
+                ft.Tab(label="全部", icon=ft.Icons.LIST),
             ],
             expand=True,
         )
