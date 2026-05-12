@@ -335,7 +335,7 @@ def TaskStreakCard(
                 ],
                 spacing=0,
             ),
-            padding=ft.padding.zero,
+            padding=ft.padding.all(0),
         ),
         elevation=1,
         color=ft.Colors.GREY_100 if not is_enabled else None,
