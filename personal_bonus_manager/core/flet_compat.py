@@ -18,6 +18,14 @@ _MOVED_KWARGS: dict[type, list[str]] = {
     ft.SnackBar: ["open"],
     ft.ProgressRing: ["width", "height"],
     ft.FloatingActionButton: ["tooltip"],
+    # Additional classes found in second audit
+    ft.TabBar: ["on_change"],
+    ft.Row: ["expand"],
+    ft.Column: ["expand", "scroll"],
+    ft.BorderSide: ["width", "color"],
+    ft.ButtonStyle: ["bgcolor", "color", "shape", "padding"],
+    ft.RoundedRectangleBorder: ["radius"],
+    ft.Theme: ["color_scheme_seed", "use_material3", "font_family"],
 }
 
 
