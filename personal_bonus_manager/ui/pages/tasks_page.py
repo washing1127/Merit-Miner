@@ -629,7 +629,7 @@ class TasksPage:
             max_lines=3,
         )
 
-        # Repeat type
+        # --- State variables ---
         repeat_types = [
             ("none", "不重复"),
             ("daily", "每天"),
@@ -639,6 +639,73 @@ class TasksPage:
         ]
         default_rtype = task.repeat_type if task else "daily"
 
+        current_days = set()
+        if task and task.repeat_days:
+            try:
+                current_days = {int(d) for d in task.repeat_days.split(",") if d.strip()}
+            except ValueError:
+                pass
+
+        prio_default = task.priority if task else TaskPriority.NONE
+        task_type_default = task.task_type if task else TaskType.NORMAL
+
+        # --- Callback functions (defined before widget creation) ---
+
+        async def _on_rtype_change(e):
+            nonlocal default_rtype
+            default_rtype = e.control.data
+            for btn in rtype_row.controls:
+                selected = btn.data == default_rtype
+                btn.style = ft.ButtonStyle(
+                    bgcolor=ft.Colors.BLUE if selected else ft.Colors.GREY_200,
+                    color=ft.Colors.WHITE if selected else ft.Colors.GREY_700,
+                    shape=ft.RoundedRectangleBorder(radius=6),
+                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                )
+                btn.update()
+            weekday_row.visible = (default_rtype == "weekly")
+            weekday_label.visible = (default_rtype == "weekly")
+            weekday_row.update()
+            weekday_label.update()
+            due_date_row.visible = (default_rtype == "none")
+            due_date_row.update()
+
+        def _make_toggle_day(day):
+            async def _toggle_day(e):
+                nonlocal current_days
+                if day in current_days:
+                    current_days.discard(day)
+                else:
+                    current_days.add(day)
+                e.control.bgcolor = ft.Colors.BLUE if day in current_days else ft.Colors.GREY_200
+                e.control.update()
+            return _toggle_day
+
+        def _make_set_priority(pv):
+            async def _set_priority(e):
+                nonlocal prio_default
+                prio_default = pv
+                for i, btn in enumerate(prio_buttons):
+                    target = [TaskPriority.NONE, TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH][i]
+                    sel = target == prio_default
+                    btn.style = ft.ButtonStyle(
+                        bgcolor=PRIORITY_COLORS[target] if sel else ft.Colors.GREY_200,
+                        color=ft.Colors.WHITE if sel else ft.Colors.GREY_600,
+                        shape=ft.RoundedRectangleBorder(radius=6),
+                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                    )
+                    btn.update()
+            return _set_priority
+
+        def _set_ttype(e):
+            nonlocal task_type_default
+            task_type_default = TaskType.REWARD if e.control.value else TaskType.NORMAL
+            reward_amount_field.visible = (task_type_default == TaskType.REWARD)
+            reward_amount_field.update()
+
+        # --- Widgets ---
+
+        # Repeat type buttons
         def _rtype_btn(rtype, label):
             selected = rtype == default_rtype
             return ft.TextButton(
@@ -659,91 +726,28 @@ class TasksPage:
             scroll=ft.ScrollMode.AUTO,
         )
 
-        # Weekday selector (shown for weekly)
-        current_days = set()
-        if task and task.repeat_days:
-            try:
-                current_days = {int(d) for d in task.repeat_days.split(",") if d.strip()}
-            except ValueError:
-                pass
-
+        # Weekday selector
         weekday_chips = []
         for i, label in enumerate(WEEKDAY_LABELS):
             selected = i in current_days
-
-            def _toggle_day(e, day=i):
-                nonlocal current_days
-                if day in current_days:
-                    current_days.discard(day)
-                else:
-                    current_days.add(day)
-                e.control.bgcolor = ft.Colors.BLUE if day in current_days else ft.Colors.GREY_200
-                e.control.update()
-
             chip = ft.Container(
                 content=ft.Text(label, size=12),
                 padding=ft.padding.symmetric(horizontal=10, vertical=6),
                 border_radius=16,
                 bgcolor=ft.Colors.BLUE if selected else ft.Colors.GREY_200,
-                on_click=_toggle_day,
+                on_click=_make_toggle_day(i),
             )
             weekday_chips.append(chip)
 
-        weekday_row = ft.Row(
-            weekday_chips,
-            spacing=6,
-            visible=(default_rtype == "weekly"),
-        )
-        weekday_label = ft.Text(
-            "选择星期",
-            size=12,
-            color=ft.Colors.GREY_600,
-            visible=(default_rtype == "weekly"),
-        )
-
-        async def _on_rtype_change(e):
-            nonlocal default_rtype
-            default_rtype = e.control.data
-            # Update all buttons
-            for btn in rtype_row.controls:
-                selected = btn.data == default_rtype
-                btn.style = ft.ButtonStyle(
-                    bgcolor=ft.Colors.BLUE if selected else ft.Colors.GREY_200,
-                    color=ft.Colors.WHITE if selected else ft.Colors.GREY_700,
-                    shape=ft.RoundedRectangleBorder(radius=6),
-                    padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                )
-                btn.update()
-            # Toggle weekday selector
-            weekday_row.visible = (default_rtype == "weekly")
-            weekday_label.visible = (default_rtype == "weekly")
-            weekday_row.update()
-            weekday_label.update()
-            # Toggle due date
-            due_date_row.visible = (default_rtype == "none")
-            due_date_row.update()
+        weekday_row = ft.Row(weekday_chips, spacing=6, visible=(default_rtype == "weekly"))
+        weekday_label = ft.Text("选择星期", size=12, color=ft.Colors.GREY_600, visible=(default_rtype == "weekly"))
 
         # Priority selector
-        prio_default = task.priority if task else TaskPriority.NONE
         prio_buttons = []
         for p_val in [TaskPriority.NONE, TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH]:
             label = PRIORITY_LABELS[p_val]
             color = PRIORITY_COLORS[p_val]
             is_selected = p_val == prio_default
-
-            def _set_priority(e, pv=p_val):
-                nonlocal prio_default
-                prio_default = pv
-                for i, btn in enumerate(prio_buttons):
-                    sel = [TaskPriority.NONE, TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH][i] == prio_default
-                    btn.style = ft.ButtonStyle(
-                        bgcolor=PRIORITY_COLORS[[TaskPriority.NONE, TaskPriority.LOW, TaskPriority.MEDIUM, TaskPriority.HIGH][i]] if sel else ft.Colors.GREY_200,
-                        color=ft.Colors.WHITE if sel else ft.Colors.GREY_600,
-                        shape=ft.RoundedRectangleBorder(radius=6),
-                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                    )
-                    btn.update()
-
             btn = ft.TextButton(
                 label,
                 style=ft.ButtonStyle(
@@ -752,21 +756,13 @@ class TasksPage:
                     shape=ft.RoundedRectangleBorder(radius=6),
                     padding=ft.padding.symmetric(horizontal=8, vertical=4),
                 ),
-                on_click=_set_priority,
+                on_click=_make_set_priority(p_val),
             )
             prio_buttons.append(btn)
 
         prio_row = ft.Row(prio_buttons, spacing=4)
 
-        # Task type
-        task_type_default = task.task_type if task else TaskType.NORMAL
-
-        def _set_ttype(e):
-            nonlocal task_type_default
-            task_type_default = TaskType.REWARD if e.control.value else TaskType.NORMAL
-            reward_amount_field.visible = (task_type_default == TaskType.REWARD)
-            reward_amount_field.update()
-
+        # Task type switch
         type_switch = ft.Switch(
             label="奖励任务（打卡获得奖金）",
             value=(task_type_default == TaskType.REWARD),
@@ -833,7 +829,7 @@ class TasksPage:
                 pa_val = float(pa_str) if pa_str else 0.0
             except ValueError:
                 penalty_amount_field.error_text = "请输入有效金额"
-                panalty_field.update()
+                penalty_amount_field.update()
                 return
 
             # If penalty enabled but no amount, default to reward amount
