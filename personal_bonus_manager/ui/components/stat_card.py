@@ -275,7 +275,7 @@ def TaskStreakCard(
     else:
         subtitle = ft.Container()
 
-    # --- Action buttons (all view) ---
+    # --- Action buttons ---
     if view_mode == "all":
         actions = ft.Row(
             [
@@ -294,6 +294,13 @@ def TaskStreakCard(
             ],
             tight=True,
             spacing=0,
+        )
+    elif is_checked_today:
+        actions = ft.IconButton(
+            icon=ft.Icons.EDIT,
+            icon_size=16,
+            tooltip="编辑",
+            on_click=on_edit,
         )
     else:
         actions = ft.Container()
